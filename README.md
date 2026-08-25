@@ -6,71 +6,83 @@
 
 ## NEVER ENTER A SEED OR PRIVATE KEY
 
-TimeSats v0.1 is a small, static-first technical proof for a self-custodial Bitcoin absolute timelock. Given a **test public key** and an **unlock block height**, it deterministically derives a P2WSH test-vault address. It does not generate keys, sign transactions, broadcast transactions, run a wallet, or hold funds.
+TimeSats é uma prova técnica local de autocustódia. Não é exchange, banco, corretora, carteira custodial ou serviço de recuperação. O usuário escolhe um plano e o Bitcoin executa a regra temporal; TimeSats só constrói, explica e preserva dados **públicos** da política.
 
-## The problem and proposal
+Se TimeSats desaparecer, não tem seed, chave privada, chave da empresa, conta ou banco de dados que possa levar fundos. Também não tem como recuperar uma chave perdida ou desbloquear um UTXO antes do prazo.
 
-Someone planning to hold bitcoin long-term may want a voluntary rule: “do not spend these sats before block X.” TimeSats expresses that rule as Bitcoin Script. The user remains the only holder of the signing key; the Bitcoin network evaluates the timelock. TimeSats is not a custodian and cannot unlock, recover, or move bitcoin.
+## O que cada versão prova
 
-## What v0.1 does
+- **v0.1:** primitive P2WSH/CLTV real, validada end-to-end em Bitcoin Core Regtest: funding, rejeição antes do prazo e spend após o prazo.
+- **v0.2:** um **Vault Plan** com um unlock block fixo e múltiplos endereços P2WSH determinísticos, derivados de uma extended public key BIP32 de teste (`tpub`).
 
-- accepts only a compressed secp256k1 **public key** and a block-height locktime;
-- supports **Signet** (default) and **Regtest** only;
-- derives a deterministic native SegWit v0 P2WSH address and public recovery bundle;
-- validates inputs locally in the browser;
-- contains no application API routes, analytics, accounts, database, or secret handling.
-
-It deliberately does **not** create seed phrases, request private keys/WIF/xprv, sign, broadcast, estimate fees, query a chain, or accept mainnet.
-
-## Timelock model
-
-The witness script is documented precisely in [docs/bitcoin-script.md](docs/bitcoin-script.md). In policy form it is:
+Exemplo conceitual:
 
 ```text
-<unlockHeight> OP_CHECKLOCKTIMEVERIFY OP_DROP <compressedUserPublicKey> OP_CHECKSIG
+Plano: Casa
+Unlock block: H
+Deposit #0 -> child m/0 -> endereço A -> script com H
+Deposit #1 -> child m/1 -> endereço B -> script com H
+Deposit #2 -> child m/2 -> endereço C -> script com H
 ```
 
-It is wrapped in P2WSH (`OP_0 <SHA256(witnessScript)>`). A future spending transaction must use a block-height `nLockTime` at least `unlockHeight` and a non-final sequence for the spending input. CLTV enforces those facts in consensus; it is not an application timer.
+Cada depósito é um UTXO independente. A interface apenas os agrupa conceitualmente; ela não sabe se houve funding, não consulta blockchain e não mostra saldo.
 
-Block heights are not civil-clock deadlines. TimeSats does not turn dates into promised block heights.
+## Modelo Bitcoin
 
-## Architecture
+Para cada child public key comprimida `P_i`, TimeSats mantém a primitive v0.1:
 
 ```text
-src/domain/   policy shape and allow-list boundary
-src/bitcoin/  Bitcoin network mapping, key validation, Script and P2WSH derivation
-src/components/ client-only form and local export UX
-src/app/      static Next.js page and styles
+<unlockHeight> OP_CHECKLOCKTIMEVERIFY OP_DROP <P_i> OP_CHECKSIG
 ```
 
-The React component has no Bitcoin Script construction. `src/bitcoin/vault.ts` is pure and has no fetch or server dependency.
+O witness script é encapsulado em P2WSH v0. Para gastar no futuro, uma transação deve usar `nLockTime >= unlockHeight` com tipo de altura de bloco, e um `nSequence` não-final no input do vault. `OP_CHECKLOCKTIMEVERIFY` (BIP 65) faz a rede Bitcoin verificar essas condições. Blocos não são relógios civis, portanto não há promessa de uma hora exata.
 
-## Networks
+Detalhes byte-a-byte: [docs/bitcoin-script.md](docs/bitcoin-script.md). Planos e recovery: [docs/vault-plans.md](docs/vault-plans.md).
 
-`signet` and `regtest` are the only valid domain values. `mainnet` is absent from the UI/type/schema and is explicitly rejected at runtime in the Bitcoin network boundary. Signet uses the `tb` Bech32 HRP; Regtest uses `bcrt`.
+## Dados públicos e derivação
 
-## Recovery bundle
+O plano aceita somente uma `tpub` BIP32 válida para a rede de testes. Signet e Regtest compartilham os bytes BIP32 públicos de testnet (`0x043587cf`), mas geram endereços com HRP diferente (`tb` e `bcrt`).
 
-The UI can view, copy, or download a JSON file locally. Example shape:
+O template fixo é `m/<index>` relativo à `tpub`; somente índices normais `0..2^31-1` são aceitos. Não há derivação hardened depois de uma chave pública. O BIP 32 permite que `CKDpub` derive esses filhos sem a chave privada; um child private key do mesmo caminho é necessário apenas ao gastar, fora do TimeSats.
+
+Uma extended public key não permite gastar, mas pode correlacionar endereços. Trate-a como informação privada de observação. Nunca a envie a um serviço não confiável.
+
+## Recovery bundle v2
+
+O export é JSON público, local e estritamente validado. Sua estrutura real é:
 
 ```json
 {
-  "version": 1,
-  "network": "signet",
-  "publicKey": "02…",
-  "unlockHeight": 840000,
-  "address": "tb1q…",
-  "witnessScript": "…",
-  "outputScript": "0020…",
-  "outputType": "p2wsh-v0"
+  "format": "timesats-vault-plan",
+  "version": 2,
+  "policy": {
+    "policyVersion": 1,
+    "network": "signet",
+    "unlockHeight": 840000,
+    "keySource": {
+      "type": "bip32-testnet-xpub",
+      "extendedPublicKey": "tpub..."
+    },
+    "derivation": { "pathTemplate": "m/<index>", "hardened": false }
+  },
+  "recovery": { "lastIssuedIndex": 2 },
+  "metadata": { "label": "Casa" }
 }
 ```
 
-It contains only public reconstruction data—never a seed, mnemonic, private key, WIF, or xprv. Keep independent backups of the bundle and, separately, the actual key material in the user’s chosen wallet/hardware wallet. A bundle does not restore a lost signing key.
+Ele não contém seed, mnemonic, private key, WIF, xprv ou tprv. Para reconstruir sem servidores TimeSats: valide o JSON, derive `m/0` até `m/lastIssuedIndex` a partir da `tpub`, aplique o script CLTV acima usando o `unlockHeight`, e localize os UTXOs por software compatível. O bundle não substitui o backup da chave/seed do usuário e deve ser atualizado após cada novo endereço emitido.
 
-## Run and test
+Cada depósito também exibe `raw(<outputScript>)`, um output descriptor BIP 385 exato para aquele output P2WSH. Isso é recuperação de saída, não uma promessa de fluxo de assinatura em outra wallet.
 
-Requires a current Node.js LTS and npm.
+## Redes e privacidade
+
+Somente `signet` e `regtest` são aceitos no tipo, Zod schema, derivação e UI. `mainnet` falha explicitamente no limite de domínio/Bitcoin. Não existem API routes de usuário, analytics, trackers, telemetry, contas, login, banco, cloud sync ou chamadas de rede no núcleo de derivação. O app pode ser exportado estaticamente; a hospedagem escolhida no futuro ainda pode registrar requisições HTTP normais.
+
+O localStorage é apenas conveniência e contém somente o schema público de planos. Dados corrompidos são ignorados e reportados; o recovery bundle é o registro portátil, mas não é um backup de chaves.
+
+## Desenvolvimento
+
+Requer Node.js LTS e npm.
 
 ```bash
 npm install
@@ -82,34 +94,26 @@ npm run build
 npm audit
 ```
 
-`npm run build` produces a static export (`out/`). No server-side wallet endpoint is present.
-
-### Optional Regtest integration
-
-The regular unit suite does not require Bitcoin Core. When `bitcoind`, `bitcoin-cli`, Bash, and `jq` are installed and a local Regtest daemon is already running, use:
+`npm run build` produz o export estático em `out/`. A suíte unitária não requer Bitcoin Core nem rede. O harness isolado abaixo é opcional:
 
 ```bash
-npm run test:regtest
+BITCOIND=/caminho/bitcoind BITCOINCLI=/caminho/bitcoin-cli npm run test:regtest
 ```
 
-The isolated harness described in [docs/regtest-integration.md](docs/regtest-integration.md) creates a disposable Regtest wallet/key and proves mempool rejection before the selected height and acceptance after mining. It never targets mainnet and is not part of the product runtime.
+Ele inicia daemon descartável exclusivamente com `-regtest`, gera raiz BIP32 aleatória só no processo de teste, entrega apenas sua `tpub` à implementação TimeSats, financia Deposit #0 e #1, demonstra rejeições e confirma ambos os spends depois do unlock. Leia [docs/regtest-integration.md](docs/regtest-integration.md).
 
-## Library choice
+## Dependências Bitcoin
 
-- `bitcoinjs-lib` **7.0.1**: mature, widely used TypeScript library for Script compilation, native SegWit P2WSH output/address construction, and test/regtest network encoding.
-- `@noble/curves` **2.3.0**: audited, pure-JavaScript secp256k1 implementation used only to validate that supplied compressed public-key bytes are an actual curve point.
-- `zod` **3.24.2**: strict policy/input validation.
+- `bitcoinjs-lib` 7.0.1: Script number, serialização Script, P2WSH, endereço SegWit e sighash do harness.
+- `@noble/curves` 2.3.0: validação de ponto secp256k1; assinatura somente no harness Regtest descartável.
+- `@scure/bip32` 2.3.0: parse/serialização de extended key e derivação pública BIP32. Não há BIP32, Base58Check ou secp256k1 escrito pelo projeto.
 
-TimeSats delegates Script-number encoding, Script serialization, SHA256/P2WSH construction, Bech32 address encoding, and secp256k1 point validation to those libraries. It does not implement cryptography or ECDSA itself.
+Veja a avaliação de dependências, descriptors e Miniscript em [docs/research-v0.2.md](docs/research-v0.2.md).
 
-## Privacy
+## Limitações deliberadas
 
-The v0.1 policy derivation is entirely local. There are no analytics, trackers, accounts, intentional fingerprinting, database, or user endpoints. A static Next.js site still involves normal HTTP delivery by whichever host is chosen in the future; hosting/server logs are outside this repository’s control. The app itself does not send a public key or recovery bundle anywhere.
+Não há mainnet, BTC real, geração/importação de seed, private key, WIF, signing de produção, broadcast, PSBT, hardware wallet, Sparrow/Electrum integration, chain monitoring, saldo, preço, fiat, conta, backend, cloud ou recuperação social. A interoperabilidade futura é pesquisa, não promessa. Veja [SECURITY.md](SECURITY.md).
 
-## Limitations and threat model
+## Próximo passo — não implementado
 
-This prototype has no chain-height lookup, hardware-wallet workflow, transaction construction, signing, broadcast, fee handling, or automated recovery verification. It makes no security guarantee and must not receive real bitcoin. See [SECURITY.md](SECURITY.md) for risks including supply-chain compromise, altered frontend, incorrect policy review, wrong key, key loss, and wrong height.
-
-## Roadmap (not implemented)
-
-After independent review of this core, the next milestone should be an offline/hardware-wallet-compatible **test-network-only spending-plan verifier** that displays the required `nLockTime` and `nSequence` without accepting secret keys or broadcasting.
+Uma próxima milestone lógica é verificar, em Regtest e com uma combinação de signer/PSBT escolhida e testada, um fluxo de spending testnet que não aceite segredos na UI. Isso exige uma matriz de compatibilidade executada antes de qualquer integração de hardware wallet.

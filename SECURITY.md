@@ -1,22 +1,30 @@
 # Security notes and threat model
 
-TimeSats v0.1 is experimental software, not a security guarantee. It is Signet/Regtest-only and must not receive real bitcoin.
+## EXPERIMENTAL — SIGNET/REGTEST ONLY — DO NOT SEND REAL BITCOIN
 
-## What it is designed to do
+TimeSats v0.2 creates public descriptions of fixed-height P2WSH/CLTV plans. It is not a wallet, signer, broadcaster, recovery service or security guarantee. Never enter a seed phrase, mnemonic, private key, WIF, xprv, tprv, password or API token.
 
-It locally derives a P2WSH output whose witness script requires a valid signature for the supplied public key and a CLTV-compatible transaction locktime. It does not receive or generate secret material.
+| Risk | What v0.2 does | Remaining risk / user action |
+| --- | --- | --- |
+| Loss of seed or signing key | TimeSats never receives it. | Funds remain inaccessible even after CLTV. Back up wallet keys independently. |
+| Loss of recovery bundle | Export/import is local and public. | Backup the bundle independently; it is not a key backup. |
+| Outdated `lastIssuedIndex` | Bundle records the highest issued index. | Export again after issuing addresses; missing index records can impede discovery. |
+| xpub privacy leakage | UI warns that a `tpub` correlates its derived addresses. | Treat it as private observation data; do not share or upload it. |
+| Parent xpub plus child private-key exposure | Public-only derivation is non-hardened by necessity. | Do not expose a descendant private key together with its ancestor xpub; BIP32 describes the escalation risk. |
+| Wrong derivation path | Template is fixed and recorded as `m/<index>`. | Verify the exported key source is the intended account/branch before funding. |
+| Address reuse | Each issued index derives a distinct child/address. | Do not manually send repeatedly to one displayed address; issue the next one. |
+| Wrong unlock height | Schema restricts to block-height locktimes. | Blocks are not a clock; independently review the integer. Hard timelocks can be harmful in emergencies. |
+| Corrupted localStorage | Strict schema validation fails closed and does not use corrupt data. | localStorage is convenience only; keep exported bundle backups. |
+| Altered frontend / clipboard | Data is derived locally and displayed in full. | A hostile host, extension or XSS can still substitute an address. Verify script/address on an independent trusted system. |
+| Incorrect script generation | v0.1 unit vectors and Bitcoin Core Regtest integration validate the literal Script. | This prototype can still contain bugs; do not use real funds. |
+| Compromised dependency / supply chain | Uses pinned lockfile dependencies and mature Bitcoin libraries. | Review lockfile, package provenance, build environment and releases independently. |
+| Descriptor misinterpretation | Each deposit exports exact `raw(<outputScript>)`; Miniscript is not silently substituted. | A raw descriptor alone does not provide a tested signer workflow. |
+| Future wallet incompatibility | Documentation labels interoperability as unproven unless tested. | Do not assume hardware wallet, Sparrow or Electrum can sign this policy. |
+| False sense of recovery | Bundle reconstructs public policy only. | It cannot restore lost keys, discover funds automatically, or produce signatures. |
+| TimeSats unavailable | No server, account or company key is part of the script. | Keep code/policy/bundle instructions independently; recovery tooling remains a future compatibility task. |
+| Mainnet misuse | Mainnet is rejected in schemas, derivation and UI. | Software or a compromised build can still be unsafe; never send real bitcoin to experimental software. |
+| Misleading balance | UI intentionally has no chain source or total balance. | Do not infer funding from issued addresses; verify on-chain with independent infrastructure. |
 
-## Important risks not solved by v0.1
+## Scope boundary
 
-- **Supply-chain compromise:** npm packages, a lockfile, a build system, or a hosting pipeline could be malicious or altered.
-- **Compromised Bitcoin library:** a defect or compromise in `bitcoinjs-lib` or `@noble/curves` could cause invalid validation, serialization, or an unexpected address.
-- **Altered frontend:** a malicious host, browser extension, XSS, or substituted static asset could display one policy while constructing another.
-- **Incorrect script generation/review:** this prototype can contain bugs. Independently verify the policy, witness script, and P2WSH address before any future real use.
-- **Wrong public key:** the application cannot prove that an entered public key belongs to the user or their hardware wallet.
-- **Lost key:** loss of the signing private key permanently removes access after the timelock too. TimeSats has no recovery capability.
-- **Wrong unlock height:** a height may be earlier/later than intended; Bitcoin block production is not a clock and the app does not estimate calendar dates.
-- **Insufficient backups:** a recovery bundle is public metadata, not a key backup. Losing independent records can make later reconstruction difficult.
-- **Future hardware-wallet integration:** wallet firmware/UI may reject, mis-display, or incompletely support custom P2WSH/CLTV spends. Such integration needs separate review.
-- **Misleading interface:** labels, copied addresses, clipboard substitution, and visual confusion are all threats. Review data on an independent trusted device.
-
-Do not enter a seed phrase, mnemonic, private key, WIF, xprv, password, or API token into TimeSats. This version has no recovery, no support channel for funds, and no promise that funds cannot be lost.
+The only signing condition in the output is the user-derived public key plus CLTV. There is no TimeSats key, company recovery key, multisig, social recovery, backend, analytics, account, database or cloud sync. P2WSH output construction is deterministic, but a future signing/recovery workflow needs separate compatibility tests and security review.

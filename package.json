@@ -1,6 +1,6 @@
 {
   "name": "timesats",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@noble/curves": "2.3.0",
+    "@scure/bip32": "2.3.0",
     "bitcoinjs-lib": "7.0.1",
     "next": "15.5.23",
     "react": "19.1.1",

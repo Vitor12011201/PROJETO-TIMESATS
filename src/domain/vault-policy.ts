@@ -31,7 +31,7 @@ export type VaultPolicy = z.infer<typeof VaultPolicySchema>;
  */
 export function assertAllowedNetwork(network: string): asserts network is AllowedNetwork {
   if (network === "mainnet") {
-    throw new Error("Mainnet is prohibited by TimeSats v0.1.");
+    throw new Error("Mainnet is prohibited by TimeSats.");
   }
   if (!allowedNetworks.includes(network as AllowedNetwork)) {
     throw new Error(`Unsupported network: ${network}. Only signet and regtest are allowed.`);

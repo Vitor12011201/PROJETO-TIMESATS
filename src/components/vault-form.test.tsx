@@ -1,33 +1,47 @@
+import { afterEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { validTestTpub } from "@/tests/fixtures";
+import { VAULT_PLAN_STORAGE_KEY } from "@/storage/vault-plan-storage";
 import { VaultForm } from "./vault-form";
 
-const validPublicKey = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+afterEach(() => window.localStorage.removeItem(VAULT_PLAN_STORAGE_KEY));
+
+function fillValidPlan(): void {
+  fireEvent.change(screen.getByLabelText("Nome do plano"), { target: { value: "Minha Casa" } });
+  fireEvent.change(screen.getByLabelText(/Extended public key/), { target: { value: validTestTpub } });
+  fireEvent.change(screen.getByLabelText("Unlock block"), { target: { value: "840000" } });
+}
 
 describe("VaultForm", () => {
-  it("shows the test-network safety warnings and never offers mainnet", () => {
+  it("shows test-network warnings, public-only warnings, and never offers mainnet", () => {
     render(<VaultForm />);
     expect(screen.getByText("SIGNET / REGTEST ONLY")).toBeVisible();
     expect(screen.getByText("DO NOT SEND REAL BITCOIN")).toBeVisible();
     expect(screen.queryByRole("option", { name: /mainnet/i })).not.toBeInTheDocument();
     expect(screen.getByText(/Never enter a seed phrase or private key/i)).toBeVisible();
+    expect(screen.getByText(/pode revelar relações entre endereços derivados/i)).toBeVisible();
   });
 
-  it("reports an understandable error for invalid form input and keeps result hidden", () => {
+  it("rejects private input with an understandable error and keeps a result hidden", () => {
     render(<VaultForm />);
-    fireEvent.change(screen.getByLabelText("Public key"), { target: { value: "not-a-public-key" } });
+    fireEvent.change(screen.getByLabelText("Nome do plano"), { target: { value: "Minha Casa" } });
+    fireEvent.change(screen.getByLabelText(/Extended public key/), { target: { value: "tprv8ZgxMBicQKsPe" } });
     fireEvent.change(screen.getByLabelText("Unlock block"), { target: { value: "840000" } });
-    fireEvent.click(screen.getByRole("button", { name: "Criar cofre" }));
-    expect(screen.getByRole("alert")).toHaveTextContent(/Public key must be/);
-    expect(screen.queryByText("COFRE DE TESTE")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Criar plano" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(/must not receive an extended private key/i);
+    expect(screen.queryByText("VAULT PLAN · TEST NETWORK")).not.toBeInTheDocument();
   });
 
-  it("shows a result only after valid input", () => {
+  it("creates a plan with Deposit #0 and generates Deposit #1 without showing a balance", () => {
     render(<VaultForm />);
-    fireEvent.change(screen.getByLabelText("Public key"), { target: { value: validPublicKey } });
-    fireEvent.change(screen.getByLabelText("Unlock block"), { target: { value: "840000" } });
-    fireEvent.click(screen.getByRole("button", { name: "Criar cofre" }));
-    expect(screen.getByText("COFRE DE TESTE")).toBeVisible();
-    expect(screen.getByText(/^tb1q/)).toBeVisible();
+    fillValidPlan();
+    fireEvent.click(screen.getByRole("button", { name: "Criar plano" }));
+    expect(screen.getByText("VAULT PLAN · TEST NETWORK")).toBeVisible();
+    expect(screen.getByText("Deposit #0")).toBeVisible();
+    expect(screen.getByText("Deposits issued").nextElementSibling).toHaveTextContent("1");
+    fireEvent.click(screen.getByRole("button", { name: /Adicionar sats/ }));
+    expect(screen.getByText("Deposit #1")).toBeVisible();
+    expect(screen.getByText("Deposits issued").nextElementSibling).toHaveTextContent("2");
+    expect(screen.queryByText(/total.*sats|bitcoin balance|saldo confirmado/i)).not.toBeInTheDocument();
   });
 });

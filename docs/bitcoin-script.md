@@ -65,4 +65,8 @@ This app does not build or sign a transaction. A future compatible signer would 
 
 No private key is needed to construct the address, and no TimeSats key appears in the script.
 
+## V0.2 Vault Plans
+
+V0.2 does not alter this construction. For every issued deposit index `i`, it derives a different compressed BIP32 child public key `P_i` from the plan's public `tpub` at relative path `m/i`, then applies the exact same script with the plan's single fixed `unlockHeight`. Thus the outputs differ because `P_i` differs, while their CLTV requirement is identical. The BIP32 source, path template and issued indexes are documented in [vault-plans.md](vault-plans.md).
+
 Primary references: [BIP 65](https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki) and [Bitcoin Developer Guide: transactions](https://developer.bitcoin.org/devguide/transactions.html).
