@@ -6,42 +6,49 @@ import { VaultForm } from "./vault-form";
 
 afterEach(() => window.localStorage.removeItem(VAULT_PLAN_STORAGE_KEY));
 
+function openCreateDialog(): void {
+  fireEvent.click(screen.getAllByRole("button", { name: "Criar meu plano" })[0]);
+}
+
 function fillValidPlan(): void {
   fireEvent.change(screen.getByLabelText("Nome do plano"), { target: { value: "Minha Casa" } });
-  fireEvent.change(screen.getByLabelText(/Extended public key/), { target: { value: validTestTpub } });
-  fireEvent.change(screen.getByLabelText("Unlock block"), { target: { value: "840000" } });
+  fireEvent.change(screen.getByLabelText(/Chave pública estendida/), { target: { value: validTestTpub } });
+  fireEvent.change(screen.getByLabelText("Bloco de desbloqueio"), { target: { value: "840000" } });
 }
 
 describe("VaultForm", () => {
-  it("shows test-network warnings, public-only warnings, and never offers mainnet", () => {
+  it("shows test-network warnings, never offers mainnet, and keeps semantic navigation", () => {
     render(<VaultForm />);
-    expect(screen.getByText("SIGNET / REGTEST ONLY")).toBeVisible();
-    expect(screen.getByText("DO NOT SEND REAL BITCOIN")).toBeVisible();
+    expect(screen.getByText(/Experimental software\. Signet \/ Regtest only/i)).toBeVisible();
+    expect(screen.getByText(/Do not send real bitcoin/i)).toBeVisible();
     expect(screen.queryByRole("option", { name: /mainnet/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/Never enter a seed phrase or private key/i)).toBeVisible();
-    expect(screen.getByText(/pode revelar relações entre endereços derivados/i)).toBeVisible();
+    openCreateDialog();
+    expect(screen.getByRole("dialog", { name: /Crie seu compromisso/i })).toBeVisible();
+    expect(screen.getByText(/Nunca informe seed ou chave privada/i)).toBeVisible();
   });
 
-  it("rejects private input with an understandable error and keeps a result hidden", () => {
+  it("rejects private input with an understandable error and keeps the plan panel absent", () => {
     render(<VaultForm />);
+    openCreateDialog();
     fireEvent.change(screen.getByLabelText("Nome do plano"), { target: { value: "Minha Casa" } });
-    fireEvent.change(screen.getByLabelText(/Extended public key/), { target: { value: "tprv8ZgxMBicQKsPe" } });
-    fireEvent.change(screen.getByLabelText("Unlock block"), { target: { value: "840000" } });
+    fireEvent.change(screen.getByLabelText(/Chave pública estendida/), { target: { value: "tprv8ZgxMBicQKsPe" } });
+    fireEvent.change(screen.getByLabelText("Bloco de desbloqueio"), { target: { value: "840000" } });
     fireEvent.click(screen.getByRole("button", { name: "Criar plano" }));
     expect(screen.getByRole("alert")).toHaveTextContent(/must not receive an extended private key/i);
-    expect(screen.queryByText("VAULT PLAN · TEST NETWORK")).not.toBeInTheDocument();
+    expect(screen.queryByText("Depósito #0")).not.toBeInTheDocument();
   });
 
-  it("creates a plan with Deposit #0 and generates Deposit #1 without showing a balance", () => {
+  it("creates a real plan and generates the next deterministic deposit without a balance", () => {
     render(<VaultForm />);
+    openCreateDialog();
     fillValidPlan();
     fireEvent.click(screen.getByRole("button", { name: "Criar plano" }));
-    expect(screen.getByText("VAULT PLAN · TEST NETWORK")).toBeVisible();
-    expect(screen.getByText("Deposit #0")).toBeVisible();
-    expect(screen.getByText("Deposits issued").nextElementSibling).toHaveTextContent("1");
-    fireEvent.click(screen.getByRole("button", { name: /Adicionar sats/ }));
-    expect(screen.getByText("Deposit #1")).toBeVisible();
-    expect(screen.getByText("Deposits issued").nextElementSibling).toHaveTextContent("2");
-    expect(screen.queryByText(/total.*sats|bitcoin balance|saldo confirmado/i)).not.toBeInTheDocument();
+    expect(screen.getByText("PLANO LOCAL")).toBeVisible();
+    expect(screen.getByText("Depósito #0")).toBeVisible();
+    expect(screen.getByText("Endereços emitidos").nextElementSibling).toHaveTextContent("1");
+    fireEvent.click(screen.getByRole("button", { name: /Adicionar sats a este plano/ }));
+    expect(screen.getByText("Depósito #1")).toBeVisible();
+    expect(screen.getByText("Endereços emitidos").nextElementSibling).toHaveTextContent("2");
+    expect(screen.queryByText(/total depositado|saldo confirmado|bitcoin balance/i)).not.toBeInTheDocument();
   });
 });

@@ -16,6 +16,7 @@
     "@noble/curves": "2.3.0",
     "@scure/bip32": "2.3.0",
     "bitcoinjs-lib": "7.0.1",
+    "lucide-react": "1.33.0",
     "next": "15.5.23",
     "react": "19.1.1",
     "react-dom": "19.1.1",
