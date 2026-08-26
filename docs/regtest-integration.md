@@ -48,3 +48,20 @@ SPEND Deposit#1 accepted=true txid=... confirmedHeight=112 originalUtxoSpent=tru
 ```
 
 If Bitcoin Core is unavailable, the harness must not be represented as executed. Obtain the archive only from [bitcoin.org/bin](https://bitcoincore.org/bin/), verify its SHA-256 against the published manifest, and verify the manifest signature when GPG is available before running it.
+
+## v0.3 external-signer PSBT harness
+
+`npm run test:regtest` now executes `scripts/regtest-psbt.ts`; the retained
+`npm run test:regtest:v0.2` runs the original two-deposit primitive proof.
+The v0.3 coordinator starts an isolated `-regtest` Core and an independent
+`scripts/regtest-psbt-signer.ts` child process. The child creates a random
+BIP32 root in memory, returns only its `tpub`, and receives an unsigned BIP174
+PSBT over stdin/stdout. No xprv, WIF, seed or private child key is passed to
+the TimeSats implementation, output, command line or persistence.
+
+The proof funds Deposit #0, retrieves the raw funding transaction, asks
+TimeSats to prove the selected `vout` matches Deposit #0, builds a one-input /
+one-output PSBT, sends it to the child signer, validates the returned partial
+signature, finalizes it, and asks `testmempoolaccept` before and after mining
+to `unlockHeight`. It only broadcasts in the harness after acceptance and
+requires `gettxout` to be empty after confirmation.

@@ -10,7 +10,7 @@ import {
 } from "@/bitcoin/vault-plan";
 import type { CreateVaultPlanInput, VaultPlan } from "@/domain/vault-plan";
 import { loadVaultPlans, saveVaultPlans, upsertVaultPlan } from "@/storage/vault-plan-storage";
-import { ActivePlanCard, CreatePlanDialog, Footer, Header, Hero, HowItWorks, PlansGrid } from "./timesats-sections";
+import { ActivePlanCard, CreatePlanDialog, Footer, Header, Hero, HowItWorks, PlansGrid, PrepareSpendDialog } from "./timesats-sections";
 import styles from "./timesats-ui.module.css";
 
 function downloadJson(value: object, fileName: string): void {
@@ -27,6 +27,7 @@ export function TimeSatsApp() {
   const [plans, setPlans] = useState<VaultPlan[]>([]);
   const [activePlan, setActivePlan] = useState<VaultPlan | null>(null);
   const [isCreateOpen, setCreateOpen] = useState(false);
+  const [spendDepositIndex, setSpendDepositIndex] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
   const importInput = useRef<HTMLInputElement>(null);
@@ -101,7 +102,7 @@ export function TimeSatsApp() {
       <main className={styles.main}>
         <section className={styles.hero} id="produto">
           <Hero onCreate={() => setCreateOpen(true)} />
-          <ActivePlanCard activePlan={activePlan} deposits={deposits} onAdd={addSats} onCopy={copyAddress} onCreate={() => setCreateOpen(true)} onExport={exportBundle} />
+          <ActivePlanCard activePlan={activePlan} deposits={deposits} onAdd={addSats} onCopy={copyAddress} onCreate={() => setCreateOpen(true)} onExport={exportBundle} onPrepareSpend={setSpendDepositIndex} />
         </section>
         <HowItWorks />
         <PlansGrid activePlan={activePlan} plans={plans} onCreate={() => setCreateOpen(true)} onSelect={(plan) => { setActivePlan(plan); setError(null); }} onImport={() => importInput.current?.click()} />
@@ -111,6 +112,7 @@ export function TimeSatsApp() {
       <Footer />
       <input ref={importInput} className={styles.visuallyHidden} type="file" accept="application/json,.json" onChange={importBundle} aria-label="Importar recovery bundle" />
       {isCreateOpen && <CreatePlanDialog onClose={() => setCreateOpen(false)} onCreate={createPlan} />}
+      {activePlan && spendDepositIndex !== null && <PrepareSpendDialog plan={activePlan} depositIndex={spendDepositIndex} onClose={() => setSpendDepositIndex(null)} />}
     </div>
   );
 }

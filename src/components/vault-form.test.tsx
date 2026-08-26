@@ -51,4 +51,18 @@ describe("VaultForm", () => {
     expect(screen.getByText("Endereços emitidos").nextElementSibling).toHaveTextContent("2");
     expect(screen.queryByText(/total depositado|saldo confirmado|bitcoin balance/i)).not.toBeInTheDocument();
   });
+
+  it("offers the offline PSBT flow without ever requesting a private key", () => {
+    render(<VaultForm />);
+    openCreateDialog();
+    fillValidPlan();
+    fireEvent.click(screen.getByRole("button", { name: "Criar plano" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preparar gasto" }));
+    expect(screen.getByRole("dialog", { name: "Preparar PSBT" })).toBeVisible();
+    expect(screen.getByLabelText(/Transação de funding em raw hex/i)).toBeVisible();
+    expect(screen.getByLabelText(/Endereço de destino/i)).toBeVisible();
+    expect(screen.getByText(/Sua carteira assina fora desta aplicação/i)).toBeVisible();
+    expect(screen.getByText(/TimeSats não transmite esta transação/i)).toBeVisible();
+    expect(screen.queryByLabelText(/seed|mnemonic|private key|WIF|xprv|tprv/i)).not.toBeInTheDocument();
+  });
 });

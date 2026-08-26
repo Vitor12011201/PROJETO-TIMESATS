@@ -14,6 +14,7 @@ Se TimeSats desaparecer, não tem seed, chave privada, chave da empresa, conta o
 
 - **v0.1:** primitive P2WSH/CLTV real, validada end-to-end em Bitcoin Core Regtest: funding, rejeição antes do prazo e spend após o prazo.
 - **v0.2:** um **Vault Plan** com um unlock block fixo e múltiplos endereços P2WSH determinísticos, derivados de uma extended public key BIP32 de teste (`tpub`).
+- **v0.3:** preparação offline de gasto por PSBT BIP174: verificação de funding raw, um input/um output, signer externo e finalização sem receber chave privada.
 
 Exemplo conceitual:
 
@@ -46,6 +47,22 @@ O plano aceita somente uma `tpub` BIP32 válida para a rede de testes. Signet e 
 O template fixo é `m/<index>` relativo à `tpub`; somente índices normais `0..2^31-1` são aceitos. Não há derivação hardened depois de uma chave pública. O BIP 32 permite que `CKDpub` derive esses filhos sem a chave privada; um child private key do mesmo caminho é necessário apenas ao gastar, fora do TimeSats.
 
 Uma extended public key não permite gastar, mas pode correlacionar endereços. Trate-a como informação privada de observação. Nunca a envie a um serviço não confiável.
+
+## Gasto offline por PSBT (v0.3)
+
+```text
+VaultPlan + Deposit #N
+        -> raw funding transaction + vout
+        -> TimeSats valida o output P2WSH
+        -> PSBT não assinado
+        -> signer externo assina
+        -> TimeSats valida/finaliza
+        -> usuário transmite em outro software
+```
+
+O escopo é deliberadamente um sweep: um UTXO, uma saída de destino e fee inteira em sats. `nLockTime` vem sempre do `unlockHeight`, `nSequence` é `0xfffffffe` e o sighash é somente `SIGHASH_ALL`. TimeSats não recebe seed, mnemonic, private key, WIF, xprv ou tprv; também não assina nem transmite. Um PSBT pode revelar UTXO, valores, scripts e destino; compartilhe-o somente com o signer escolhido.
+
+A importação de funding prova que o output existiu na transação raw e corresponde ao Depósito selecionado. Sem uma fonte de blockchain, não prova que o UTXO ainda não foi gasto. Veja [docs/psbt-spending.md](docs/psbt-spending.md).
 
 ## Recovery bundle v2
 
@@ -100,7 +117,7 @@ npm audit
 BITCOIND=/caminho/bitcoind BITCOINCLI=/caminho/bitcoin-cli npm run test:regtest
 ```
 
-Ele inicia daemon descartável exclusivamente com `-regtest`, gera raiz BIP32 aleatória só no processo de teste, entrega apenas sua `tpub` à implementação TimeSats, financia Deposit #0 e #1, demonstra rejeições e confirma ambos os spends depois do unlock. Leia [docs/regtest-integration.md](docs/regtest-integration.md).
+Ele inicia daemon descartável exclusivamente com `-regtest`, inicia signer isolado que gera raiz BIP32 aleatória em memória e entrega apenas sua `tpub` à implementação TimeSats, financia Deposit #0, prepara/assina/valida PSBT, demonstra rejeição antes do unlock e confirma o spend depois do unlock. O harness v0.2 continua disponível em `npm run test:regtest:v0.2`. Leia [docs/regtest-integration.md](docs/regtest-integration.md).
 
 ## Dependências Bitcoin
 
@@ -112,7 +129,7 @@ Veja a avaliação de dependências, descriptors e Miniscript em [docs/research-
 
 ## Limitações deliberadas
 
-Não há mainnet, BTC real, geração/importação de seed, private key, WIF, signing de produção, broadcast, PSBT, hardware wallet, Sparrow/Electrum integration, chain monitoring, saldo, preço, fiat, conta, backend, cloud ou recuperação social. A interoperabilidade futura é pesquisa, não promessa. Veja [SECURITY.md](SECURITY.md).
+Não há mainnet, BTC real, geração/importação de seed, private key, WIF, signing de produção, broadcast na UI, hardware wallet, Sparrow/Electrum integration, chain monitoring, saldo, preço, fiat, conta, backend, cloud ou recuperação social. O signer de Regtest é somente um harness, não um produto. A interoperabilidade futura é pesquisa, não promessa. Veja [SECURITY.md](SECURITY.md).
 
 ## Próximo passo — não implementado
 

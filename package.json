@@ -1,6 +1,6 @@
 {
   "name": "timesats",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:regtest": "vite-node --config vitest.config.mjs scripts/regtest-cltv.ts"
+    "test:regtest": "vite-node --config vitest.config.mjs scripts/regtest-psbt.ts",
+    "test:regtest:v0.2": "vite-node --config vitest.config.mjs scripts/regtest-cltv.ts"
   },
   "dependencies": {
     "@noble/curves": "2.3.0",
