@@ -137,7 +137,7 @@ try {
     if (!imported[0]?.success) throw new Error(`Core could not import Deposit #${testDeposit.deposit.index}.`);
   }
 
-  const fundingTxids = testDeposits.map(({ deposit }) => cli(["sendtoaddress", deposit.address, fundingAmountBtc], wallet));
+  testDeposits.forEach(({ deposit }) => cli(["sendtoaddress", deposit.address, fundingAmountBtc], wallet));
   mine(1, minerAddress);
   for (const testDeposit of testDeposits) {
     const utxo = json<RegtestUtxo[]>(["listunspent", "1", "9999999", JSON.stringify([testDeposit.deposit.address])], watchWallet)[0];
