@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createVaultPlan } from "@/bitcoin/vault-plan";
+import { createVaultPlan, deriveDeposit, issueNextDeposit } from "@/bitcoin/vault-plan";
 import { validTestTpub } from "@/tests/fixtures";
 import { loadVaultPlans, saveVaultPlans, upsertVaultPlan, VAULT_PLAN_STORAGE_KEY } from "./vault-plan-storage";
 
@@ -29,6 +29,17 @@ describe("public-only local VaultPlan storage", () => {
     const storage = memoryStorage();
     storage.setItem(VAULT_PLAN_STORAGE_KEY, "{invalid json");
     expect(loadVaultPlans(storage)).toEqual(expect.objectContaining({ plans: [], error: expect.stringMatching(/invalid|corrupted/i) }));
+  });
+
+  it("loads an unchanged V1 plan from the v0.3 storage key without silently converting it", () => {
+    const storage = memoryStorage();
+    const legacy = { ...plan(), lastIssuedIndex: 1, metadata: { label: "Plano V1 legado" } };
+    storage.setItem("timesats.vault-plans.v2", JSON.stringify({ format: "timesats-local-vault-plans", version: 2, plans: [legacy] }));
+    const loaded = loadVaultPlans(storage);
+    expect(storage.getItem(VAULT_PLAN_STORAGE_KEY)).toBeNull();
+    expect(loaded).toEqual({ plans: [legacy], error: null });
+    expect(deriveDeposit(loaded.plans[0], 1)).toEqual(deriveDeposit(legacy, 1));
+    expect(issueNextDeposit(loaded.plans[0]).deposit).toEqual(issueNextDeposit(legacy).deposit);
   });
 
   it("updates the same public policy without making metadata part of the identity", () => {

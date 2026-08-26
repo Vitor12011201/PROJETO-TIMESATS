@@ -13,6 +13,8 @@ function openCreateDialog(): void {
 function fillValidPlan(): void {
   fireEvent.change(screen.getByLabelText("Nome do plano"), { target: { value: "Minha Casa" } });
   fireEvent.change(screen.getByLabelText(/Chave pública estendida/), { target: { value: validTestTpub } });
+  fireEvent.change(screen.getByLabelText(/Fingerprint mestre público/), { target: { value: "deadbeef" } });
+  fireEvent.change(screen.getByLabelText(/Caminho absoluto da tpub/), { target: { value: "m" } });
   fireEvent.change(screen.getByLabelText("Bloco de desbloqueio"), { target: { value: "840000" } });
 }
 
@@ -32,6 +34,8 @@ describe("VaultForm", () => {
     openCreateDialog();
     fireEvent.change(screen.getByLabelText("Nome do plano"), { target: { value: "Minha Casa" } });
     fireEvent.change(screen.getByLabelText(/Chave pública estendida/), { target: { value: "tprv8ZgxMBicQKsPe" } });
+    fireEvent.change(screen.getByLabelText(/Fingerprint mestre público/), { target: { value: "deadbeef" } });
+    fireEvent.change(screen.getByLabelText(/Caminho absoluto da tpub/), { target: { value: "m" } });
     fireEvent.change(screen.getByLabelText("Bloco de desbloqueio"), { target: { value: "840000" } });
     fireEvent.click(screen.getByRole("button", { name: "Criar plano" }));
     expect(screen.getByRole("alert")).toHaveTextContent(/must not receive an extended private key/i);

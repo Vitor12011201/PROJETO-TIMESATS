@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { VAULT_PLAN_VERSION, type VaultPlan } from "@/domain/vault-plan";
+import { LEGACY_VAULT_PLAN_VERSION, type VaultPlan } from "@/domain/vault-plan";
 import {
   createVaultPlan,
   createVaultPlanRecoveryBundle,
@@ -20,10 +20,18 @@ function planInput() {
   };
 }
 
+function interoperablePlanInput() {
+  return {
+    ...planInput(),
+    policyVersion: 2 as const,
+    keyOrigin: { masterFingerprint: "deadbeef", sourcePath: "m/84'/1'/0'/0" },
+  };
+}
+
 describe("VaultPlan public-only deterministic derivation", () => {
   it("creates a valid plan and immediately issues Deposit #0", () => {
     const plan = createVaultPlan(planInput());
-    expect(plan.version).toBe(VAULT_PLAN_VERSION);
+    expect(plan.version).toBe(LEGACY_VAULT_PLAN_VERSION);
     expect(plan.lastIssuedIndex).toBe(0);
     expect(deriveIssuedDeposits(plan)).toHaveLength(1);
   });
@@ -135,5 +143,41 @@ describe("VaultPlan public-only deterministic derivation", () => {
   it("retains a strict public-only VaultPlan shape", () => {
     const plan: VaultPlan = createVaultPlan(planInput());
     expect(plan.policy.keySource.type).toBe("bip32-testnet-xpub");
+  });
+
+  it("versions V2 plans, commits public key origin, and never reinterprets V1", () => {
+    const v1 = createVaultPlan(planInput());
+    const v2 = createVaultPlan(interoperablePlanInput());
+    expect(v1.version).toBe(2);
+    expect(v1.policy.policyVersion).toBe(1);
+    expect(v2.version).toBe(3);
+    expect(v2.policy.policyVersion).toBe(2);
+    expect(v2.policy.keySource.type).toBe("bip32-testnet-xpub-with-origin");
+    expect(deriveDeposit(v2, 0).absoluteDerivationPath).toBe("m/84'/1'/0'/0/0");
+    expect(deriveDeposit(v2, 0).address).not.toBe(deriveDeposit(v1, 0).address);
+  });
+
+  it("normalizes hardened source-path markers and appends the child index once", () => {
+    const plan = createVaultPlan({ ...interoperablePlanInput(), keyOrigin: { masterFingerprint: "DEADBEEF", sourcePath: "m/84h/1H/0h/0" } });
+    expect(plan.policy.keySource.type).toBe("bip32-testnet-xpub-with-origin");
+    if (plan.policy.keySource.type !== "bip32-testnet-xpub-with-origin") throw new Error("Expected V2 key source.");
+    expect(plan.policy.keySource.keyOrigin).toEqual({ masterFingerprint: "deadbeef", sourcePath: "m/84'/1'/0'/0" });
+    expect(deriveDeposit(plan, 7).absoluteDerivationPath).toBe("m/84'/1'/0'/0/7");
+  });
+
+  it("round-trips V2 recovery while retaining the V1 recovery format", () => {
+    const legacy = createVaultPlanRecoveryBundle(createVaultPlan(planInput()));
+    const interoperable = createVaultPlanRecoveryBundle(createVaultPlan(interoperablePlanInput()));
+    expect(legacy.version).toBe(2);
+    expect(interoperable.version).toBe(3);
+    expect(reconstructVaultPlan(legacy)).toEqual(createVaultPlan(planInput()));
+    expect(reconstructVaultPlan(interoperable)).toEqual(createVaultPlan(interoperablePlanInput()));
+  });
+
+  it.each([
+    { ...interoperablePlanInput(), keyOrigin: { masterFingerprint: "not-hex", sourcePath: "m/84'/1'/0'/0" } },
+    { ...interoperablePlanInput(), keyOrigin: { masterFingerprint: "deadbeef", sourcePath: "m/not-a-path" } },
+  ])("rejects malformed V2 key-origin metadata", (input) => {
+    expect(() => createVaultPlan(input)).toThrow();
   });
 });

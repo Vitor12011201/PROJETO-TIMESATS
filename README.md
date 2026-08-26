@@ -15,6 +15,7 @@ Se TimeSats desaparecer, não tem seed, chave privada, chave da empresa, conta o
 - **v0.1:** primitive P2WSH/CLTV real, validada end-to-end em Bitcoin Core Regtest: funding, rejeição antes do prazo e spend após o prazo.
 - **v0.2:** um **Vault Plan** com um unlock block fixo e múltiplos endereços P2WSH determinísticos, derivados de uma extended public key BIP32 de teste (`tpub`).
 - **v0.3:** preparação offline de gasto por PSBT BIP174: verificação de funding raw, um input/um output, signer externo e finalização sem receber chave privada.
+- **v0.4:** Policy V2 versionada e prova Regtest com `walletprocesspsbt` de uma wallet Bitcoin Core externa; a Policy V1 histórica permanece intacta.
 
 Exemplo conceitual:
 
@@ -30,7 +31,7 @@ Cada depósito é um UTXO independente. A interface apenas os agrupa conceitualm
 
 ## Modelo Bitcoin
 
-Para cada child public key comprimida `P_i`, TimeSats mantém a primitive v0.1:
+Planos V1 mantêm a primitive v0.1:
 
 ```text
 <unlockHeight> OP_CHECKLOCKTIMEVERIFY OP_DROP <P_i> OP_CHECKSIG
@@ -39,6 +40,8 @@ Para cada child public key comprimida `P_i`, TimeSats mantém a primitive v0.1:
 O witness script é encapsulado em P2WSH v0. Para gastar no futuro, uma transação deve usar `nLockTime >= unlockHeight` com tipo de altura de bloco, e um `nSequence` não-final no input do vault. `OP_CHECKLOCKTIMEVERIFY` (BIP 65) faz a rede Bitcoin verificar essas condições. Blocos não são relógios civis, portanto não há promessa de uma hora exata.
 
 Detalhes byte-a-byte: [docs/bitcoin-script.md](docs/bitcoin-script.md). Planos e recovery: [docs/vault-plans.md](docs/vault-plans.md).
+
+Planos V2 são explicitamente versionados e usam `wsh(and_v(v:after(H),pk(P_i)))`, compilado pelo Core como `<H> OP_CHECKLOCKTIMEVERIFY OP_VERIFY <P_i> OP_CHECKSIG`. V1 e V2 não têm os mesmos bytes/endereço; a análise demonstra equivalência semântica somente no domínio TimeSats. V2 inclui origem BIP32 pública legítima para o signer Core; nunca converta um plano V1. Veja [docs/research-v0.4-policy-v2.md](docs/research-v0.4-policy-v2.md).
 
 ## Dados públicos e derivação
 
@@ -129,8 +132,8 @@ Veja a avaliação de dependências, descriptors e Miniscript em [docs/research-
 
 ## Limitações deliberadas
 
-Não há mainnet, BTC real, geração/importação de seed, private key, WIF, signing de produção, broadcast na UI, hardware wallet, Sparrow/Electrum integration, chain monitoring, saldo, preço, fiat, conta, backend, cloud ou recuperação social. O signer de Regtest é somente um harness, não um produto. A interoperabilidade futura é pesquisa, não promessa. Veja [SECURITY.md](SECURITY.md).
+Não há mainnet, BTC real, geração/importação de seed, private key, WIF, signing de produção, broadcast na UI, hardware wallet, Sparrow/Electrum integration, chain monitoring, saldo, preço, fiat, conta, backend, cloud ou recuperação social. A única interoperabilidade comprovada é Bitcoin Core 31.1 `walletprocesspsbt` em Regtest para Policy V2; outros signers continuam requerendo teste. Veja [docs/bitcoin-core-signer.md](docs/bitcoin-core-signer.md) e [SECURITY.md](SECURITY.md).
 
 ## Próximo passo — não implementado
 
-Uma próxima milestone lógica é verificar, em Regtest e com uma combinação de signer/PSBT escolhida e testada, um fluxo de spending testnet que não aceite segredos na UI. Isso exige uma matriz de compatibilidade executada antes de qualquer integração de hardware wallet.
+Uma próxima milestone lógica é testar uma nova combinação de signer somente após pesquisa e prova equivalente; não há promessa de compatibilidade genérica ou de hardware wallet.

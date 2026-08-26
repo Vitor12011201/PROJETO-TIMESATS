@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { VAULT_POLICY_VERSION, type VaultPolicy } from "@/domain/vault-policy";
+import { VAULT_POLICY_V1, VAULT_POLICY_V2, type VaultPolicy } from "@/domain/vault-policy";
 import { bitcoinNetworkFor } from "./networks";
 import { createRecoveryBundle, deriveVault, reconstructVault, validatePublicKey } from "./vault";
 
 const generatorPublicKey = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
 const alternatePublicKey = "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5";
 const signetPolicy: VaultPolicy = {
-  version: VAULT_POLICY_VERSION,
+  version: VAULT_POLICY_V1,
   network: "signet",
   publicKey: generatorPublicKey,
   unlockHeight: 840_000,
@@ -88,5 +88,16 @@ describe("TimeSats vault derivation", () => {
     deriveVault(signetPolicy);
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+
+  it("builds deterministic V2 CHECKLOCKTIMEVERIFY/VERIFY scripts at policy boundaries", () => {
+    for (const unlockHeight of [1, 2, 16, 17, 100, 499_999_999]) {
+      const v1 = deriveVault({ ...signetPolicy, version: VAULT_POLICY_V1, unlockHeight });
+      const v2 = deriveVault({ ...signetPolicy, version: VAULT_POLICY_V2, unlockHeight });
+      expect(v2.witnessScript).toContain("b16921");
+      expect(v2.witnessScript).not.toBe(v1.witnessScript);
+      expect(v2.address).not.toBe(v1.address);
+      expect(deriveVault({ ...signetPolicy, version: VAULT_POLICY_V2, unlockHeight })).toEqual(v2);
+    }
   });
 });

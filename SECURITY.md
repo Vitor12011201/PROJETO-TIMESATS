@@ -2,9 +2,9 @@
 
 ## EXPERIMENTAL — SIGNET/REGTEST ONLY — DO NOT SEND REAL BITCOIN
 
-TimeSats v0.3 creates public descriptions of fixed-height P2WSH/CLTV plans and prepares offline PSBTs. It is not a wallet, signer, broadcaster, recovery service or security guarantee. Never enter a seed phrase, mnemonic, private key, WIF, xprv, tprv, password or API token.
+TimeSats v0.4 creates public descriptions of fixed-height P2WSH/CLTV plans and prepares offline PSBTs. It is not a wallet, signer, broadcaster, recovery service or security guarantee. Never enter a seed phrase, mnemonic, private key, WIF, xprv, tprv, password or API token.
 
-| Risk | What v0.2 does | Remaining risk / user action |
+| Risk | What TimeSats does | Remaining risk / user action |
 | --- | --- | --- |
 | Loss of seed or signing key | TimeSats never receives it. | Funds remain inaccessible even after CLTV. Back up wallet keys independently. |
 | Loss of recovery bundle | Export/import is local and public. | Backup the bundle independently; it is not a key backup. |
@@ -34,6 +34,13 @@ TimeSats v0.3 creates public descriptions of fixed-height P2WSH/CLTV plans and p
 | PSBT privacy leakage | UI warns before export and does not upload PSBTs. | PSBT exposes financial metadata; share only with the signer selected by the user. |
 | Prepared before unlock | UI explains signing is not unlocking; Core rejects before CLTV height. | A third party may retain/export the raw transaction; it becomes valid at unlock height. |
 | Compromised test signer | Test signer is isolated and in-memory only. | It is not a production signer nor proof of hardware wallet compatibility. |
+| Policy-version confusion | V1 and V2 are explicit discriminators; V1 bundle/plan version 2 remains V1 and V2 uses version 3. | Verify the policy/version before funding or reconstructing; never upgrade/downgrade a plan by editing JSON. |
+| V1/V2 address mismatch | V2 intentionally uses `OP_VERIFY` and therefore a different script hash/address. | Do not send to a V2 address when reconstructing a V1 plan, or vice versa. |
+| Key-origin substitution | V2 stores public fingerprint and source path and validates the exact PSBT derivation record. | Those values are public but privacy-sensitive; obtain them from the intended wallet and verify them independently. |
+| Key reuse and script-type correlation | The Core proof reused a derived key in a disposable harness to establish signer metadata. | Treat this only as a technical proof; production signer branches should avoid reuse and correlation. |
+| Malicious Core signer metadata | Extra public PSBT metadata is tolerated only when it cannot change the intent; expected V2 origin is checked. | A compromised wallet/host can still mislead before the user creates an intent; inspect the destination independently. |
+| Wallet file or host theft | Bitcoin Core retains the private key outside TimeSats. | Protect/encrypt the signer wallet and host; TimeSats not possessing the key does not protect a compromised signer. |
+| Clipboard replacement | PSBT exchange is manual/offline. | Compare base64/file provenance and destination on a trusted display before signing. |
 
 ## Scope boundary
 

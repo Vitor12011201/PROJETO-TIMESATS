@@ -111,6 +111,45 @@ describe("offline Vault UTXO and BIP174 PSBT preparation", () => {
     expect(Psbt.fromBase64(unsigned.base64).toBase64()).toBe(unsigned.base64);
   });
 
+  it("adds V2 BIP32 metadata only when a public key origin is part of the plan", () => {
+    const root = HDKey.fromMasterSeed(randomBytes(32), testnetBip32Versions);
+    const plan = createVaultPlan({ label: "V2", network: "regtest", unlockHeight: 250, extendedPublicKey: root.publicExtendedKey, policyVersion: 2, keyOrigin: { masterFingerprint: "deadbeef", sourcePath: "m" } });
+    const deposit = deriveDeposit(plan, 0);
+    const funding = new Transaction();
+    funding.addInput(new Uint8Array(32), 0);
+    funding.addOutput(hexToBytes(deposit.outputScript), 500_000n);
+    const verified = verifyFundingTransaction(plan, 0, funding.toHex(), 0);
+    const destinationKey = HDKey.fromMasterSeed(randomBytes(32), testnetBip32Versions).deriveChild(1).publicKey!;
+    const destination = payments.p2wpkh({ pubkey: destinationKey, network: bitcoinNetworkFor("regtest") }).address!;
+    const psbt = Psbt.fromBase64(buildUnsignedVaultPsbt(createVaultSpendIntent(verified.utxo, destination, 500), verified.utxo).base64);
+    expect(psbt.data.inputs[0].bip32Derivation).toEqual([{ masterFingerprint: hexToBytes("deadbeef"), path: "m/0", pubkey: hexToBytes(deposit.publicKey) }]);
+  });
+
+  it("rejects hostile V2 fingerprint, path, child-index, and public-key origin substitutions", () => {
+    const root = HDKey.fromMasterSeed(randomBytes(32), testnetBip32Versions);
+    const child = root.deriveChild(0);
+    if (!child.privateKey || !child.publicKey) throw new Error("V2 test signer unavailable.");
+    const plan = createVaultPlan({ label: "V2", network: "regtest", unlockHeight: 250, extendedPublicKey: root.publicExtendedKey, policyVersion: 2, keyOrigin: { masterFingerprint: "deadbeef", sourcePath: "m" } });
+    const deposit = deriveDeposit(plan, 0);
+    const funding = new Transaction(); funding.addInput(new Uint8Array(32), 0); funding.addOutput(hexToBytes(deposit.outputScript), 500_000n);
+    const verified = verifyFundingTransaction(plan, 0, funding.toHex(), 0);
+    const destinationKey = HDKey.fromMasterSeed(randomBytes(32), testnetBip32Versions).deriveChild(1).publicKey!;
+    const destination = payments.p2wpkh({ pubkey: destinationKey, network: bitcoinNetworkFor("regtest") }).address!;
+    const intent = createVaultSpendIntent(verified.utxo, destination, 500);
+    const unsigned = buildUnsignedVaultPsbt(intent, verified.utxo).base64;
+    const variants = [
+      { masterFingerprint: hexToBytes("feedface"), path: "m/0", pubkey: hexToBytes(deposit.publicKey) },
+      { masterFingerprint: hexToBytes("deadbeef"), path: "m/1", pubkey: hexToBytes(deposit.publicKey) },
+      { masterFingerprint: hexToBytes("deadbeef"), path: "m/0", pubkey: HDKey.fromMasterSeed(randomBytes(32), testnetBip32Versions).deriveChild(0).publicKey! },
+    ];
+    for (const bip32Derivation of variants) {
+      const psbt = Psbt.fromBase64(unsigned, { network: bitcoinNetworkFor("regtest") });
+      psbt.data.inputs[0].bip32Derivation = [bip32Derivation];
+      const signed = signPsbt(psbt, child.privateKey, child.publicKey);
+      expect(() => validateSignedVaultPsbt(intent, verified.utxo, signed)).toThrow(/key-origin metadata/i);
+    }
+  });
+
   it("validates, finalizes, and extracts a signed PSBT without production key material", () => {
     const { child, unsigned, intent, verified } = testContext();
     const signed = sign(unsigned.base64, child.privateKey!, child.publicKey!);
@@ -133,6 +172,14 @@ describe("offline Vault UTXO and BIP174 PSBT preparation", () => {
     const signedWrong = attachWrongKeySignature(Psbt.fromBase64(unsigned.base64), wrong.privateKey, wrong.publicKey);
     expect(() => validateSignedVaultPsbt(intent, verified.utxo, signedWrong)).toThrow(/expected vault public key/i);
     expect(child.privateKey).toBeDefined();
+  });
+
+  it("rejects a V1 PSBT that attempts to present V2 key-origin metadata", () => {
+    const { child, unsigned, intent, verified } = testContext();
+    const psbt = Psbt.fromBase64(unsigned.base64, { network: bitcoinNetworkFor("regtest") });
+    psbt.updateInput(0, { bip32Derivation: [{ masterFingerprint: hexToBytes("deadbeef"), path: "m/0", pubkey: child.publicKey! }] });
+    const signed = signPsbt(psbt, child.privateKey!, child.publicKey!);
+    expect(() => validateSignedVaultPsbt(intent, verified.utxo, signed)).toThrow(/Policy V1 vault/i);
   });
 
   it("rejects altered destination, fee/output, extra input/output, locktime, sequence, and witness script", () => {

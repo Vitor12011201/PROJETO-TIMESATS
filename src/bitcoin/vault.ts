@@ -1,6 +1,6 @@
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { opcodes, payments, script } from "bitcoinjs-lib";
-import { VaultPolicySchema, type VaultPolicy } from "@/domain/vault-policy";
+import { VAULT_POLICY_V1, VaultPolicySchema, type VaultPolicy } from "@/domain/vault-policy";
 import { bytesToHex, hexToBytes } from "./encoding";
 import { bitcoinNetworkFor } from "./networks";
 
@@ -32,12 +32,12 @@ export function validatePublicKey(publicKey: string): Uint8Array {
   return key;
 }
 
-export function buildWitnessScript(unlockHeight: number, publicKey: Uint8Array): Uint8Array {
+export function buildWitnessScript(policyVersion: VaultPolicy["version"], unlockHeight: number, publicKey: Uint8Array): Uint8Array {
   // bitcoinjs-lib encodes the Script number; no hand-written integer encoding.
   return script.compile([
     script.number.encode(unlockHeight),
     opcodes.OP_CHECKLOCKTIMEVERIFY,
-    opcodes.OP_DROP,
+    policyVersion === VAULT_POLICY_V1 ? opcodes.OP_DROP : opcodes.OP_VERIFY,
     publicKey,
     opcodes.OP_CHECKSIG,
   ]);
@@ -46,7 +46,7 @@ export function buildWitnessScript(unlockHeight: number, publicKey: Uint8Array):
 export function deriveVault(input: VaultPolicy): DerivedVault {
   const policy = VaultPolicySchema.parse(input);
   const publicKey = validatePublicKey(policy.publicKey);
-  const witnessScript = buildWitnessScript(policy.unlockHeight, publicKey);
+  const witnessScript = buildWitnessScript(policy.version, policy.unlockHeight, publicKey);
   const payment = payments.p2wsh({ redeem: { output: witnessScript }, network: bitcoinNetworkFor(policy.network) });
 
   if (!payment.address || !payment.output) {

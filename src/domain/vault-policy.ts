@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-export const VAULT_POLICY_VERSION = 1 as const;
+export const VAULT_POLICY_V1 = 1 as const;
+export const VAULT_POLICY_V2 = 2 as const;
+export const VAULT_POLICY_VERSION = VAULT_POLICY_V2;
 export const LOCKTIME_THRESHOLD = 500_000_000;
 
 export const allowedNetworks = ["signet", "regtest"] as const;
@@ -8,7 +10,7 @@ export type AllowedNetwork = (typeof allowedNetworks)[number];
 
 export const VaultPolicySchema = z
   .object({
-    version: z.literal(VAULT_POLICY_VERSION),
+    version: z.union([z.literal(VAULT_POLICY_V1), z.literal(VAULT_POLICY_V2)]),
     network: z.enum(allowedNetworks),
     publicKey: z.string(),
     unlockHeight: z

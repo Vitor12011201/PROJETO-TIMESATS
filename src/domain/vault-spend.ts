@@ -21,6 +21,10 @@ export const VaultUtxoSchema = z
     outputScript: z.string().regex(/^[0-9a-f]*$/i),
     witnessScript: z.string().regex(/^[0-9a-f]*$/i),
     publicKey: z.string().regex(/^(02|03)[0-9a-f]{64}$/i),
+    keyOrigin: z.object({
+      masterFingerprint: z.string().regex(/^[0-9a-f]{8}$/i),
+      path: z.string().regex(/^m(?:\/(?:0|[1-9]\d*)(?:['hH])?)*$/),
+    }).strict().optional(),
     unlockHeight: z.number().int().min(1).max(LOCKTIME_THRESHOLD - 1),
   })
   .strict();

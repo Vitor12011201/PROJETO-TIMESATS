@@ -65,3 +65,16 @@ one-output PSBT, sends it to the child signer, validates the returned partial
 signature, finalizes it, and asks `testmempoolaccept` before and after mining
 to `unlockHeight`. It only broadcasts in the harness after acceptance and
 requires `gettxout` to be empty after confirmation.
+
+## v0.4 Bitcoin Core Policy V2 proof
+
+`scripts/regtest-policy-v2-research.ts` is a separate, disposable Core 31.1
+experiment. It creates the signing key only inside a descriptor wallet, obtains
+public key-origin metadata, verifies that Core compiles
+`wsh(and_v(v:after(H),pk(P)))` to the expected `CLTV VERIFY CHECKSIG` witness
+script, and submits a BIP174 PSBT to `walletprocesspsbt`. It then requires one
+valid partial signature, validates/finalizes it with TimeSats code, proves
+`testmempoolaccept` rejects before H and accepts after H, broadcasts only in
+the harness, mines, and checks the original UTXO is spent. It never exports
+private key material and never uses mainnet. See
+[research-v0.4-policy-v2.md](research-v0.4-policy-v2.md).

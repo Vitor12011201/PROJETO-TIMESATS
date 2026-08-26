@@ -96,6 +96,10 @@ export function verifyFundingTransaction(
     outputScript: deposit.outputScript,
     witnessScript: deposit.witnessScript,
     publicKey: deposit.publicKey,
+    keyOrigin: deposit.keyOrigin && deposit.absoluteDerivationPath ? {
+      masterFingerprint: deposit.keyOrigin.masterFingerprint,
+      path: deposit.absoluteDerivationPath,
+    } : undefined,
     unlockHeight: deposit.policy.unlockHeight,
   });
   return { utxo, deposit };
@@ -151,7 +155,7 @@ function assertIntentMatchesUtxo(intent: VaultSpendIntent, utxo: VaultUtxo): voi
   }
 }
 
-/** Builds a BIP174 PSBT v0. No private key or BIP32 origin metadata is needed. */
+/** Builds a BIP174 PSBT v0. V2 adds only verified, public key-origin metadata. */
 export function buildUnsignedVaultPsbt(intentInput: VaultSpendIntent, utxoInput: VaultUtxo): UnsignedVaultPsbt {
   const intent = VaultSpendIntentSchema.parse(intentInput);
   const utxo = VaultUtxoSchema.parse(utxoInput);
@@ -172,6 +176,11 @@ export function buildUnsignedVaultPsbt(intentInput: VaultSpendIntent, utxoInput:
     witnessUtxo: { script: hexToBytes(utxo.outputScript), value: BigInt(utxo.valueSats) },
     witnessScript: hexToBytes(utxo.witnessScript),
     sighashType: intent.sighashType,
+    ...(utxo.keyOrigin ? { bip32Derivation: [{
+      masterFingerprint: hexToBytes(utxo.keyOrigin.masterFingerprint),
+      path: utxo.keyOrigin.path,
+      pubkey: hexToBytes(utxo.publicKey),
+    }] } : {}),
   });
   psbt.addOutput({ script: destinationScript, value: BigInt(intent.destinationValueSats) });
   return { intent, base64: psbt.toBase64() };
@@ -193,6 +202,14 @@ function assertPsbtIntentInvariants(psbt: Psbt, intent: VaultSpendIntent, utxo: 
     !sameBytes(output.script, expectedDestination)
   ) {
     throw new Error("Signed PSBT changes the outpoint, sequence, or destination transaction fields.");
+  }
+  if (utxo.keyOrigin) {
+    const derivations = inputData.bip32Derivation;
+    if (!derivations || derivations.length !== 1 || !sameBytes(derivations[0].pubkey, hexToBytes(utxo.publicKey)) || derivations[0].path !== utxo.keyOrigin.path || !sameBytes(derivations[0].masterFingerprint, hexToBytes(utxo.keyOrigin.masterFingerprint))) {
+      throw new Error("Signed PSBT changes the verified public key-origin metadata.");
+    }
+  } else if (inputData.bip32Derivation?.length) {
+    throw new Error("Signed PSBT adds key-origin metadata to a Policy V1 vault.");
   }
   if (!inputData.witnessUtxo || !inputData.witnessScript || inputData.sighashType !== intent.sighashType) {
     throw new Error("Signed PSBT is missing required P2WSH witness data or SIGHASH_ALL.");

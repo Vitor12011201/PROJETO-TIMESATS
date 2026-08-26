@@ -33,6 +33,7 @@ import {
 import type { VaultSpendIntent, VaultUtxo } from "@/domain/vault-spend";
 import type { CreateVaultPlanInput, VaultPlan } from "@/domain/vault-plan";
 import { allowedNetworks, type AllowedNetwork } from "@/domain/vault-policy";
+import packageJson from "../../package.json";
 import styles from "./timesats-ui.module.css";
 
 const githubUrl = "https://github.com/Vitor12011201/PROJETO-TIMESATS";
@@ -65,7 +66,7 @@ export function Hero({ onCreate }: { onCreate: () => void }) {
         <span className={styles.sun} />
         <svg viewBox="0 0 760 205" preserveAspectRatio="none"><path d="M0 183 78 161l51-47 55 48 63-39 68 32 87-75 43 44 47-30 52 57 81-72 56 51 49-25v80H0Z" /><path className={styles.mountainFar} d="m0 198 111-43 76 24 82-67 78 66 77-40 73 31 73-51 69 48 70-29 61 31v31H0Z" /></svg>
       </div>
-      <p className={styles.eyebrow}>TIMESATS · V0.2</p>
+      <p className={styles.eyebrow}>TIMESATS · V{packageJson.version}</p>
       <h1>Seu Bitcoin.<br />Seu prazo.<br /><span>Suas chaves.</span></h1>
       <p className={styles.heroDescription}>Compromissos de longo prazo protegidos pela própria rede Bitcoin. Sem custódia. Sem confiança. Só código.</p>
       <div className={styles.heroActions}>
@@ -244,7 +245,7 @@ export function PrepareSpendDialog({ plan, depositIndex, onClose }: PrepareSpend
   </section></div>;
 }
 
-export function CreatePlanDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (input: CreateVaultPlanInput) => void }) {
+export function LegacyCreatePlanDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (input: CreateVaultPlanInput) => void }) {
   const [label, setLabel] = useState("");
   const [network, setNetwork] = useState<AllowedNetwork>("signet");
   const [extendedPublicKey, setExtendedPublicKey] = useState("");
@@ -258,4 +259,34 @@ export function CreatePlanDialog({ onClose, onCreate }: { onClose: () => void; o
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível criar o plano."); }
   }
   return <div className={styles.dialogBackdrop} role="presentation"><section className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="create-plan-title"><button type="button" className={styles.closeButton} onClick={onClose} aria-label="Fechar criação de plano"><X aria-hidden="true" size={19} /></button><p className={styles.eyebrow}>NOVO PLANO</p><h2 id="create-plan-title">Crie seu compromisso</h2><p>Informe apenas uma chave pública estendida de teste. Nunca informe seed ou chave privada.</p><form onSubmit={submit} noValidate><label htmlFor="label">Nome do plano<input id="label" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Minha Casa" autoComplete="off" /></label><label htmlFor="network">Rede<select id="network" value={network} onChange={(event) => setNetwork(event.target.value as AllowedNetwork)}>{allowedNetworks.map((item) => <option key={item} value={item}>{item === "signet" ? "Signet" : "Regtest"}</option>)}</select></label><label htmlFor="extendedPublicKey">Chave pública estendida (tpub)<input id="extendedPublicKey" value={extendedPublicKey} onChange={(event) => setExtendedPublicKey(event.target.value)} placeholder="tpub…" autoComplete="off" spellCheck="false" /></label><label htmlFor="unlockHeight">Bloco de desbloqueio<input id="unlockHeight" value={unlockHeight} onChange={(event) => setUnlockHeight(event.target.value)} placeholder="840000" inputMode="numeric" autoComplete="off" /></label>{error && <p role="alert" className={styles.dialogError}>{error}</p>}<div className={styles.dialogNotice}>EXPERIMENTAL · SIGNET / REGTEST ONLY · DO NOT SEND REAL BITCOIN</div><button type="submit" className={styles.primaryButton}>Criar plano <ArrowRight aria-hidden="true" size={18} /></button></form></section></div>;
+}
+
+export function CreatePlanDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (input: CreateVaultPlanInput) => void }) {
+  const [label, setLabel] = useState("");
+  const [network, setNetwork] = useState<AllowedNetwork>("signet");
+  const [extendedPublicKey, setExtendedPublicKey] = useState("");
+  const [masterFingerprint, setMasterFingerprint] = useState("");
+  const [sourcePath, setSourcePath] = useState("");
+  const [unlockHeight, setUnlockHeight] = useState("");
+  const [policyVersion, setPolicyVersion] = useState<1 | 2>(2);
+  const [error, setError] = useState<string | null>(null);
+
+  function submit(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    try {
+      if (!/^\d+$/.test(unlockHeight)) throw new Error("O bloco de desbloqueio deve ser uma altura inteira.");
+      onCreate({
+        label,
+        network,
+        extendedPublicKey: extendedPublicKey.trim(),
+        unlockHeight: Number(unlockHeight),
+        policyVersion,
+        keyOrigin: policyVersion === 2 ? { masterFingerprint: masterFingerprint.trim(), sourcePath: sourcePath.trim() } : undefined,
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível criar o plano.");
+    }
+  }
+
+  return <div className={styles.dialogBackdrop} role="presentation"><section className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="create-plan-title"><button type="button" className={styles.closeButton} onClick={onClose} aria-label="Fechar criação de plano"><X aria-hidden="true" size={19} /></button><p className={styles.eyebrow}>NOVO PLANO</p><h2 id="create-plan-title">Crie seu compromisso</h2><p>Informe apenas dados públicos do signer. Nunca informe seed ou chave privada.</p><form onSubmit={submit} noValidate><label htmlFor="label">Nome do plano<input id="label" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Minha Casa" autoComplete="off" /></label><label htmlFor="network">Rede<select id="network" value={network} onChange={(event) => setNetwork(event.target.value as AllowedNetwork)}>{allowedNetworks.map((item) => <option key={item} value={item}>{item === "signet" ? "Signet" : "Regtest"}</option>)}</select></label><label htmlFor="policyVersion">Política<select id="policyVersion" value={policyVersion} onChange={(event) => setPolicyVersion(Number(event.target.value) as 1 | 2)}><option value={2}>Compatível com signer externo</option><option value={1}>TimeSats V1 original</option></select></label><label htmlFor="extendedPublicKey">Chave pública estendida (tpub)<input id="extendedPublicKey" value={extendedPublicKey} onChange={(event) => setExtendedPublicKey(event.target.value)} placeholder="tpub…" autoComplete="off" spellCheck="false" /></label>{policyVersion === 2 && <><label htmlFor="masterFingerprint">Fingerprint mestre público<input id="masterFingerprint" value={masterFingerprint} onChange={(event) => setMasterFingerprint(event.target.value)} placeholder="d34db33f" autoComplete="off" spellCheck="false" /></label><label htmlFor="sourcePath">Caminho absoluto da tpub<input id="sourcePath" value={sourcePath} onChange={(event) => setSourcePath(event.target.value)} placeholder="m/84'/1'/0'/0" autoComplete="off" spellCheck="false" /></label><p>São dados públicos, porém sensíveis à privacidade. Devem corresponder exatamente à wallet Bitcoin Core.</p></>}<label htmlFor="unlockHeight">Bloco de desbloqueio<input id="unlockHeight" value={unlockHeight} onChange={(event) => setUnlockHeight(event.target.value)} placeholder="840000" inputMode="numeric" autoComplete="off" /></label>{error && <p role="alert" className={styles.dialogError}>{error}</p>}<div className={styles.dialogNotice}>EXPERIMENTAL · SIGNET / REGTEST ONLY · DO NOT SEND REAL BITCOIN</div><button type="submit" className={styles.primaryButton}>Criar plano <ArrowRight aria-hidden="true" size={18} /></button></form></section></div>;
 }

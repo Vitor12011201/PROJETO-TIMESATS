@@ -39,12 +39,13 @@ TimeSats deve poder desaparecer amanhã sem levar nenhum sat de ninguém consigo
 - **v0.1.0:** primitive CLTV/P2WSH validada em Bitcoin Core Regtest.
 - **v0.2.0:** VaultPlan, BIP32 pública, depósitos determinísticos, recovery bundle e UI.
 - **v0.3.0:** verificação offline de funding, `VaultUtxo`, `SpendIntent`, PSBT BIP174, signer externo de teste, validação do PSBT assinado e finalização.
+- **v0.4.0:** Policy V2 versionada e prova Regtest de `walletprocesspsbt` com Bitcoin Core 31.1. V1 continua suportada, byte a byte, e jamais deve ser convertida silenciosamente para V2.
 
 O PSBT atual é **v0 / BIP174**: 1 input, 1 output, sweep, fee explícita em sats, sem change, `SIGHASH_ALL`, `nLockTime = unlockHeight` e `nSequence = 0xfffffffe`.
 
 Funding é `raw funding transaction + vout`; compare o `outputScript` ao `Deposit #N` derivado. Isso prova que o output existe naquela transação, **não** que continua não gasto offline. Nunca afirme o contrário na UI.
 
-A `tpub` revela apenas `m/<index>` relativo; não invente master fingerprint, caminho absoluto ou `bip32Derivation` de PSBT.
+Uma tpub V1 revela apenas `m/<index>` relativo; não invente master fingerprint, caminho absoluto ou `bip32Derivation`. Policy V2 inclui origin público legítimo e versionado, que faz parte da identidade do vault e deve ser preservado exatamente.
 
 ## UI and money
 
@@ -77,6 +78,6 @@ Para baixar Bitcoin Core de teste: use origem oficial, verifique SHA-256 e a ass
 
 ## Next milestone and documentation
 
-v0.4 deve provar **uma** integração real: TimeSats prepara PSBT → signer real assina fora → TimeSats recebe e verifica a intenção → TimeSats finaliza. Não implemente vários signers; escolha o primeiro com pesquisa técnica e evidência.
+Bitcoin Core descriptor wallet em Regtest é o único signer externo comprovado, exclusivamente para Policy V2. Não alegue suporte de outros signers sem novo teste real.
 
 Este arquivo resume regras. Para detalhes: `README.md` (visão/uso), `SECURITY.md` (threat model), `docs/` (pesquisa, arquitetura e integração), testes (comportamento esperado) e código (implementação efetiva). Em divergência, investigue e reporte; não assuma silenciosamente.
