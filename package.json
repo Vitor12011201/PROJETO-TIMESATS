@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "test:regtest": "vite-node --config vitest.config.mjs scripts/regtest-psbt.ts",
     "test:regtest:v0.2": "vite-node --config vitest.config.mjs scripts/regtest-cltv.ts",
-    "test:regtest:core-signer": "vite-node --config vitest.config.mjs scripts/regtest-policy-v2-research.ts"
+    "test:regtest:core-signer": "vite-node --config vitest.config.mjs scripts/regtest-policy-v2-research.ts",
+    "test:regtest:jade": "vite-node --config vitest.config.mjs scripts/regtest-jade-v2-research.ts"
   },
   "dependencies": {
     "@noble/curves": "2.3.0",
