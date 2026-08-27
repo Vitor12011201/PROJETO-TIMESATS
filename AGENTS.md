@@ -78,6 +78,6 @@ Para baixar Bitcoin Core de teste: use origem oficial, verifique SHA-256 e a ass
 
 ## Next milestone and documentation
 
-Bitcoin Core descriptor wallet em Regtest é o único signer externo comprovado, exclusivamente para Policy V2. Não alegue suporte de outros signers sem novo teste real.
+Bitcoin Core descriptor wallet e Blockstream Jade em QEMU, ambos em Regtest, são os signers externos comprovados exclusivamente para Policy V2. A prova Jade é somente Phase 0 em QEMU; Jade física continua obrigatória para Phase 1 e antes de qualquer release v0.5. Não alegue suporte de outros signers sem novo teste real.
 
 Este arquivo resume regras. Para detalhes: `README.md` (visão/uso), `SECURITY.md` (threat model), `docs/` (pesquisa, arquitetura e integração), testes (comportamento esperado) e código (implementação efetiva). Em divergência, investigue e reporte; não assuma silenciosamente.

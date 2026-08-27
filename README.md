@@ -132,8 +132,8 @@ Veja a avaliação de dependências, descriptors e Miniscript em [docs/research-
 
 ## Limitações deliberadas
 
-Não há mainnet, BTC real, geração/importação de seed, private key, WIF, signing de produção, broadcast na UI, hardware wallet, Sparrow/Electrum integration, chain monitoring, saldo, preço, fiat, conta, backend, cloud ou recuperação social. A única interoperabilidade comprovada é Bitcoin Core 31.1 `walletprocesspsbt` em Regtest para Policy V2; outros signers continuam requerendo teste. Veja [docs/bitcoin-core-signer.md](docs/bitcoin-core-signer.md) e [SECURITY.md](SECURITY.md).
+Não há mainnet, BTC real, geração/importação de seed, private key, WIF, signing de produção, broadcast na UI, hardware wallet física, Sparrow/Electrum integration, chain monitoring, saldo, preço, fiat, conta, backend, cloud ou recuperação social. As combinações comprovadas exclusivamente para Policy V2 em Regtest são Bitcoin Core 31.1 `walletprocesspsbt` e Blockstream Jade em QEMU via `sign_psbt`. A prova Jade é somente Phase 0; Jade física continua obrigatória para Phase 1 e antes de qualquer release v0.5. Outros signers continuam requerendo teste. Veja [docs/bitcoin-core-signer.md](docs/bitcoin-core-signer.md), [docs/research-v0.5-jade.md](docs/research-v0.5-jade.md) e [SECURITY.md](SECURITY.md).
 
 ## Próximo passo — não implementado
 
-Uma próxima milestone lógica é testar uma nova combinação de signer somente após pesquisa e prova equivalente; não há promessa de compatibilidade genérica ou de hardware wallet.
+A próxima milestone de signer é repetir a prova relevante com uma Jade física na Phase 1; não há promessa de compatibilidade genérica, USB/BLE/QR físico ou de hardware wallet além da Jade QEMU comprovada.
