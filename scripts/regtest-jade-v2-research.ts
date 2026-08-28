@@ -27,6 +27,7 @@ const jadePythonPath = process.env.TIMESATS_JADE_PYTHONPATH ?? join(process.env.
 const datadir = process.env.BITCOIN_REGTEST_DATADIR ?? mkdtempSync(join(tmpdir(), "timesats-regtest-jade-v2-"));
 const ownsDatadir = !process.env.BITCOIN_REGTEST_DATADIR;
 const suffix = String(process.pid);
+const portBase = 20_000 + (process.pid % 10_000) * 2;
 const funderWallet = `timesats-jade-funder-${suffix}`;
 const watchWallet = `timesats-jade-watch-${suffix}`;
 const wrongWallet = `timesats-jade-wrong-${suffix}`;
@@ -43,8 +44,20 @@ interface JadePublicInfo {
   deposit0Tpub: string;
 }
 
+function harnessPort(environmentName: string, fallback: number): number {
+  const port = Number(process.env[environmentName] ?? fallback);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    throw new Error(`${environmentName} must be a valid TCP port.`);
+  }
+  return port;
+}
+
+const rpcPort = harnessPort("BITCOIN_REGTEST_RPC_PORT", portBase);
+const p2pPort = harnessPort("BITCOIN_REGTEST_P2P_PORT", portBase + 1);
+if (rpcPort === p2pPort) throw new Error("Regtest RPC and P2P ports must differ.");
+
 function cli(args: string[], walletName?: string): string {
-  const common = [`-datadir=${datadir}`, "-regtest"];
+  const common = [`-datadir=${datadir}`, "-regtest", `-rpcport=${rpcPort}`];
   if (walletName) common.push(`-rpcwallet=${walletName}`);
   return execFileSync(bitcoinCli, [...common, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
@@ -145,7 +158,7 @@ try {
   console.log(`JADE source=root path=m/0 fingerprint=${masterFingerprint} rootDerivesDeposit0=true publicOnly=true`);
 
   const daemon = spawn(bitcoind, [
-    `-datadir=${datadir}`, "-regtest", "-server=1", "-listen=0", "-connect=0", "-dnsseed=0", "-discover=0", "-fallbackfee=0.0001", "-printtoconsole=0",
+    `-datadir=${datadir}`, "-regtest", "-server=1", `-port=${p2pPort}`, `-rpcport=${rpcPort}`, "-listen=0", "-connect=0", "-dnsseed=0", "-discover=0", "-fallbackfee=0.0001", "-printtoconsole=0",
   ], { detached: true, stdio: "ignore" });
   daemonPid = daemon.pid;
   daemon.unref();
@@ -245,9 +258,15 @@ try {
   const after = mempool(final.rawTransaction);
   if (!after.allowed) throw new Error(`V2 spend rejected after unlock height: ${after["reject-reason"] ?? "unknown"}`);
   const spendTxid = cli(["sendrawtransaction", final.rawTransaction]);
+  if (spendTxid !== final.txid) throw new Error("Bitcoin Core txid differs from the TimeSats finalized transaction.");
   mine(1, miner);
+  const confirmedHeight = Number(cli(["getblockcount"]));
+  const confirmation = json<{ confirmations?: number; blockheight?: number }>(["gettransaction", spendTxid], funderWallet);
+  if (confirmation.confirmations !== 1 || confirmation.blockheight !== confirmedHeight) {
+    throw new Error("V2 spend was not confirmed in the mined Regtest block.");
+  }
   if (cli(["gettxout", funding.utxo.txid, String(funding.utxo.vout)]) !== "") throw new Error("V2 original UTXO remains unspent.");
-  console.log(`V2 SPEND accepted=true txid=${spendTxid} confirmedHeight=${cli(["getblockcount"])} originalUtxoSpent=true`);
+  console.log(`V2 SPEND accepted=true txid=${spendTxid} finalizerTxidMatchesCore=true confirmations=${confirmation.confirmations} confirmedHeight=${confirmedHeight} originalUtxoSpent=true`);
 } finally {
   try {
     cli(["stop"]);

@@ -94,8 +94,10 @@ Com QEMU acessivel e as dependencias Python do checkout Jade disponiveis:
 BITCOIND=/usr/bin/bitcoind BITCOINCLI=/usr/bin/bitcoin-cli npm run test:regtest:jade
 ```
 
-O script inicia um `bitcoind` temporario com `-regtest`, aborta se o RPC nao for
-Regtest e remove o datadir temporario ao final, salvo quando
+O script inicia um `bitcoind` temporario com `-regtest` e portas altas por
+processo, para coexistir com outro Core Regtest local. `BITCOIN_REGTEST_RPC_PORT`
+e `BITCOIN_REGTEST_P2P_PORT` permitem sobrescrever essas portas. Ele aborta se o
+RPC nao for Regtest e remove o datadir temporario ao final, salvo quando
 `TIMESATS_KEEP_REGTEST_DATA=1` e definido para depuracao descartavel.
 
 ## Prova QEMU executada
@@ -119,11 +121,61 @@ O log de sucesso incluiu:
 
 ```text
 V2 jadeSignPsbt=true descriptorRegistration=false partialSignature=true TimeSatsValidation=true
-V2 SPEND accepted=true ... confirmedHeight=108 originalUtxoSpent=true
+V2 SPEND accepted=true ... finalizerTxidMatchesCore=true confirmations=1 confirmedHeight=108 originalUtxoSpent=true
 ```
 
 O numero de altura e identificadores de transacao variam entre execucoes; o
 significado dos checks acima e o criterio de sucesso, nao um fixture.
+
+## Prova manual do vertical slice da UI
+
+Depois da prova isolada, foi observada uma prova manual adicional do fluxo de
+produto em Regtest. Ela nao substitui o harness: registra que a UI real chegou
+ate a transacao confirmada usando a mesma combinacao Jade QEMU/Policy V2.
+
+| Dado publico | Valor observado |
+| --- | --- |
+| Plano | Policy V2, Regtest, `unlockHeight=103`, fonte raiz `m` |
+| Fonte publica Jade | `tpubD6NzVbkrYhZ4Yeqkh5GKpfjjeB9cqLnnXzBvPB8g3qsRuUFvXe754t4g6rNhyw8vK7isRuwR9Vz3NeCd4LhS1rk8eHtBJERoSaLacdVSFnv` |
+| Key origin | fingerprint `35885c45`, `sourcePath: "m"` |
+| Deposit #0 | `bcrt1q0wduxpqwpjpsraezz0ynacv6hs7ukndpc53xayegmujy6j3v9chsmcu7gc` |
+| Funding | `d61905be9d7cf5fd27bc5f20e3f0febc4f0c90a751d3c83a7aa63dafd4b9192d:1`, `500000` sats |
+| Spend | destino `bcrt1qj4gq549vgqncha7g54u6q4uw02zh5yu983gcsq`, fee `500` sats, saida `499500` sats |
+| Transacao final | `910024c03e79f67250e9fc795a966442412bb693cbde19f231fa03b7ac04bccf` |
+| Confirmacao Core | 1 confirmacao, bloco 104, `7586bde419181108e678e3e1fbd721a7651daf533ae86ad4a529bcdb7a5dfa16` |
+
+O fluxo manual foi:
+
+1. a UI criou o VaultPlan V2 e derivou Deposit #0;
+2. a transacao real de funding e o `vout` foram informados a UI, que executou
+   `verifyFundingTransaction`;
+3. a UI construiu o PSBT unsigned com `nLockTime=103`, `nSequence=0xfffffffe`
+   e `SIGHASH_ALL`;
+4. a Jade em QEMU assinou externamente pelo helper `jade-sign-psbt.py`;
+5. o PSBT assinado foi importado na UI, que executou
+   `validateSignedVaultPsbt` e `finalizeVaultPsbt`;
+6. a raw transaction foi transmitida manualmente, fora do TimeSats, por Bitcoin
+   Core; o Core retornou o mesmo TXID mostrado pela UI;
+7. o bloco 104 confirmou a transacao apos o timelock.
+
+Portanto, a Policy V2 do TimeSats completou um fluxo manual end-to-end em
+Regtest usando a UI do TimeSats e firmware Jade em QEMU como signer externo.
+O TimeSats verificou o funding, produziu o PSBT, validou e finalizou o PSBT
+assinado; a raw transaction resultante foi aceita e confirmada pelo Bitcoin
+Core apos o timelock.
+
+O broadcast e a descoberta do funding foram manuais e externos. A seed
+descartavel da Jade QEMU ficou somente em RAM; nenhuma chave privada entrou no
+TimeSats, na UI, nos scripts do repositorio ou nesta documentacao.
+
+O harness ja cobre tecnicamente derivacao, funding, PSBT, `sign_psbt`,
+validacao, finalizacao, rejeicao antes de H, aceitacao depois de H, broadcast,
+confirmacao e consumo do outpoint. A prova manual acrescenta a orquestracao do
+vertical slice pela UI, nao uma nova propriedade de consenso. Por isso nao foi
+criado teste E2E de browser: os testes de UI cobrem a orquestracao local e o
+harness cobre o signer e consenso. O harness agora tambem exige igualdade entre
+o TXID do finalizador TimeSats e o retornado pelo Core, alem de uma confirmacao
+explicita no bloco minerado.
 
 ## Fronteira de segredo e limitacoes
 
@@ -140,8 +192,10 @@ Esta prova nao avalia nem afirma:
   seguranca do ambiente QEMU;
 - suporte de wallets, hardware wallets ou software alem da combinacao exata
   Jade QEMU observada e Bitcoin Core 31.1 em Regtest;
-- uso em mainnet, BTC real, monitoramento de cadeia, broadcast de produto ou
-  uma integracao de UI.
+- uso em mainnet, BTC real, monitoramento automatico de cadeia, broadcast de
+  produto ou automacao E2E de browser para a UI;
+- comportamento de uma Jade fisica, mesmo que o fluxo manual da UI tenha usado
+  uma Jade em QEMU.
 
 Phase 1 deve repetir a prova relevante com uma Jade fisica antes de qualquer
 alegacao de compatibilidade fisica ou release v0.5.
