@@ -26,7 +26,10 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
       reply({ id: request.id, tpub: root.publicExtendedKey });
       continue;
     }
-    if (request.type === "close") process.exit(0);
+    if (request.type === "close") {
+      reply({ id: request.id });
+      break;
+    }
     if (!root || !Number.isInteger(request.index) || request.index < 0 || request.index > 0x7fffffff) {
       throw new Error("Signer is not initialized or received an invalid child index.");
     }

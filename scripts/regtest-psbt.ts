@@ -1,6 +1,6 @@
 /** Optional v0.3 proof: TimeSats only sees a tpub and PSBT; signing is IPC to a test-only process. */
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -8,9 +8,11 @@ import { Transaction } from "bitcoinjs-lib";
 import { createVaultPlan, deriveDeposit } from "../src/bitcoin/vault-plan";
 import { buildUnsignedVaultPsbt, createVaultSpendIntent, finalizeVaultPsbt, validateSignedVaultPsbt, verifyFundingTransaction } from "../src/bitcoin/vault-spend";
 import { bytesToHex } from "../src/bitcoin/encoding";
+import { regtestHarnessPorts, resolveHarnessExecutable } from "./regtest-harness";
 
-const bitcoind = process.env.BITCOIND ?? "bitcoind";
-const bitcoinCli = process.env.BITCOINCLI ?? "bitcoin-cli";
+const bitcoind = resolveHarnessExecutable(process.env.BITCOIND ?? "bitcoind", "bitcoind");
+const bitcoinCli = resolveHarnessExecutable(process.env.BITCOINCLI ?? "bitcoin-cli", "bitcoin-cli");
+const { rpcPort, p2pPort } = regtestHarnessPorts(process.env.BITCOIN_REGTEST_RPC_PORT, process.env.BITCOIN_REGTEST_P2P_PORT, process.pid, 40_000);
 const datadir = process.env.BITCOIN_REGTEST_DATADIR ?? mkdtempSync(join(tmpdir(), "timesats-regtest-psbt-"));
 const ownsDatadir = !process.env.BITCOIN_REGTEST_DATADIR;
 const wallet = `timesats-psbt-${process.pid}`;
@@ -18,7 +20,7 @@ let daemonPid: number | undefined;
 let signer: ChildProcessWithoutNullStreams | undefined;
 
 function cli(args: string[], walletName?: string): string {
-  const common = [`-datadir=${datadir}`, "-regtest"];
+  const common = [`-datadir=${datadir}`, "-regtest", `-rpcport=${rpcPort}`];
   if (walletName) common.push(`-rpcwallet=${walletName}`);
   return execFileSync(bitcoinCli, [...common, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
@@ -49,13 +51,11 @@ function startSigner(): (request: object) => Promise<SignerResponse> {
 }
 
 try {
-  if (!existsSync(bitcoind) && bitcoind === "bitcoind") throw new Error("bitcoind was not found. Set BITCOIND to the official binary path.");
-  if (!existsSync(bitcoinCli) && bitcoinCli === "bitcoin-cli") throw new Error("bitcoin-cli was not found. Set BITCOINCLI to the official binary path.");
-  const daemon = spawn(bitcoind, [`-datadir=${datadir}`, "-regtest", "-server=1", "-listen=0", "-connect=0", "-dnsseed=0", "-discover=0", "-fallbackfee=0.0001", "-printtoconsole=0"], { detached: true, stdio: "ignore" });
+  const daemon = spawn(bitcoind, [`-datadir=${datadir}`, "-regtest", "-server=1", `-port=${p2pPort}`, `-rpcport=${rpcPort}`, "-listen=0", "-connect=0", "-dnsseed=0", "-discover=0", "-fallbackfee=0.0001", "-printtoconsole=0"], { detached: true, stdio: "ignore" });
   daemonPid = daemon.pid; daemon.unref(); waitForRpc();
   const chain = json<{ chain: string; blocks: number }>(["getblockchaininfo"]);
   if (chain.chain !== "regtest") throw new Error(`Unsafe chain selected: ${chain.chain}`);
-  console.log(`CORE chain=regtest initialHeight=${chain.blocks}`);
+  console.log(`CORE chain=regtest initialHeight=${chain.blocks} rpcPort=${rpcPort} p2pPort=${p2pPort}`);
 
   const requestSigner = startSigner();
   const initialized = await requestSigner({ type: "init" });
@@ -98,6 +98,16 @@ try {
   await requestSigner({ type: "close" });
 } finally {
   signer?.kill();
-  if (daemonPid) { try { process.kill(daemonPid); } catch { /* daemon may not have started */ } }
+  try {
+    cli(["stop"]);
+  } catch {
+    // The daemon may not have started or may already be stopped.
+  }
+  if (daemonPid) {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      try { process.kill(daemonPid, 0); sleep(250); } catch { break; }
+    }
+    try { process.kill(daemonPid); } catch { /* daemon may already be stopped */ }
+  }
   if (ownsDatadir && process.env.TIMESATS_KEEP_REGTEST_DATA !== "1") { try { rmSync(datadir, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 }); } catch { console.warn("Could not remove temporary Regtest datadir."); } }
 }

@@ -3,7 +3,7 @@
  * BIP32 root exclusively in this process. Product code receives only its tpub.
  */
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HDKey } from "@scure/bip32";
@@ -13,9 +13,11 @@ import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { testnetBip32Versions } from "../src/bitcoin/bip32";
 import { bytesToHex, hexToBytes } from "../src/bitcoin/encoding";
 import { createVaultPlan, deriveDeposit, type DerivedDeposit } from "../src/bitcoin/vault-plan";
+import { regtestHarnessPorts, resolveHarnessExecutable } from "./regtest-harness";
 
-const bitcoind = process.env.BITCOIND ?? "bitcoind";
-const bitcoinCli = process.env.BITCOINCLI ?? "bitcoin-cli";
+const bitcoind = resolveHarnessExecutable(process.env.BITCOIND ?? "bitcoind", "bitcoind");
+const bitcoinCli = resolveHarnessExecutable(process.env.BITCOINCLI ?? "bitcoin-cli", "bitcoin-cli");
+const { rpcPort, p2pPort } = regtestHarnessPorts(process.env.BITCOIN_REGTEST_RPC_PORT, process.env.BITCOIN_REGTEST_P2P_PORT, process.pid, 48_000);
 const datadir = process.env.BITCOIN_REGTEST_DATADIR ?? mkdtempSync(join(tmpdir(), "timesats-regtest-"));
 const ownsDatadir = !process.env.BITCOIN_REGTEST_DATADIR;
 const wallet = `timesats-plan-${process.pid}`;
@@ -29,7 +31,7 @@ interface RegtestUtxo { txid: string; vout: number }
 interface TestDeposit { deposit: DerivedDeposit; privateKey: Uint8Array; utxo?: RegtestUtxo }
 
 function cli(args: string[], walletName?: string): string {
-  const common = [`-datadir=${datadir}`, "-regtest"];
+  const common = [`-datadir=${datadir}`, "-regtest", `-rpcport=${rpcPort}`];
   if (walletName) common.push(`-rpcwallet=${walletName}`);
   return execFileSync(bitcoinCli, [...common, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
@@ -91,11 +93,8 @@ function corruptWitnessScript(rawTransaction: string): string {
 }
 
 try {
-  if (!existsSync(bitcoind) && bitcoind === "bitcoind") throw new Error("bitcoind was not found. Set BITCOIND to the official binary path.");
-  if (!existsSync(bitcoinCli) && bitcoinCli === "bitcoin-cli") throw new Error("bitcoin-cli was not found. Set BITCOINCLI to the official binary path.");
-
   const daemon = spawn(bitcoind, [
-    `-datadir=${datadir}`, "-regtest", "-server=1", "-listen=0", "-connect=0", "-dnsseed=0", "-discover=0", "-fallbackfee=0.0001", "-printtoconsole=0",
+    `-datadir=${datadir}`, "-regtest", "-server=1", `-port=${p2pPort}`, `-rpcport=${rpcPort}`, "-listen=0", "-connect=0", "-dnsseed=0", "-discover=0", "-fallbackfee=0.0001", "-printtoconsole=0",
   ], { detached: true, stdio: "ignore" });
   daemonPid = daemon.pid;
   daemon.unref();
@@ -103,7 +102,7 @@ try {
 
   const info = json<{ blocks: number; chain: string }>(["getblockchaininfo"]);
   if (info.chain !== "regtest") throw new Error(`Unsafe chain selected: ${info.chain}`);
-  console.log(`CORE chain=${info.chain} initialHeight=${info.blocks}`);
+  console.log(`CORE chain=${info.chain} initialHeight=${info.blocks} rpcPort=${rpcPort} p2pPort=${p2pPort}`);
   cli(["createwallet", wallet]);
   cli(["createwallet", watchWallet, "true"]);
   const minerAddress = cli(["getnewaddress", "timesats-miner", "bech32"], wallet);
@@ -173,11 +172,16 @@ try {
     console.log(`SPEND Deposit#${index} accepted=true txid=${spendTxids[index]} confirmedHeight=${cli(["getblockcount"])} originalUtxoSpent=true`);
   }
 } finally {
+  try {
+    cli(["stop"]);
+  } catch {
+    // The daemon may not have started or may already be stopped.
+  }
   if (daemonPid) {
-    try { process.kill(daemonPid); } catch { /* daemon may not have started */ }
     for (let attempt = 0; attempt < 40; attempt += 1) {
       try { process.kill(daemonPid, 0); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250); } catch { break; }
     }
+    try { process.kill(daemonPid); } catch { /* daemon may already be stopped */ }
   }
   if (ownsDatadir && process.env.TIMESATS_KEEP_REGTEST_DATA !== "1") {
     try { rmSync(datadir, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 }); } catch { console.warn(`Could not remove temporary Regtest datadir: ${datadir}`); }

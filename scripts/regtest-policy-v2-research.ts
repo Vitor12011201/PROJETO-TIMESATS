@@ -7,16 +7,18 @@
  * can sign that exact script using only legitimate public key-origin metadata.
  */
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { opcodes, payments, Psbt, script, Transaction } from "bitcoinjs-lib";
 import { bytesToHex, hexToBytes } from "../src/bitcoin/encoding";
 import { bitcoinNetworkFor } from "../src/bitcoin/networks";
 import { buildUnsignedVaultPsbt, createVaultSpendIntent, finalizeVaultPsbt, validateSignedVaultPsbt } from "../src/bitcoin/vault-spend";
+import { regtestHarnessPorts, resolveHarnessExecutable } from "./regtest-harness";
 
-const bitcoind = process.env.BITCOIND ?? "bitcoind";
-const bitcoinCli = process.env.BITCOINCLI ?? "bitcoin-cli";
+const bitcoind = resolveHarnessExecutable(process.env.BITCOIND ?? "bitcoind", "bitcoind");
+const bitcoinCli = resolveHarnessExecutable(process.env.BITCOINCLI ?? "bitcoin-cli", "bitcoin-cli");
+const { rpcPort, p2pPort } = regtestHarnessPorts(process.env.BITCOIN_REGTEST_RPC_PORT, process.env.BITCOIN_REGTEST_P2P_PORT, process.pid, 56_000);
 const datadir = process.env.BITCOIN_REGTEST_DATADIR ?? mkdtempSync(join(tmpdir(), "timesats-regtest-policy-v2-"));
 const ownsDatadir = !process.env.BITCOIN_REGTEST_DATADIR;
 const suffix = String(process.pid);
@@ -38,7 +40,7 @@ interface ProcessedPsbt {
 }
 
 function cli(args: string[], walletName?: string): string {
-  const common = [`-datadir=${datadir}`, "-regtest"];
+  const common = [`-datadir=${datadir}`, "-regtest", `-rpcport=${rpcPort}`];
   if (walletName) common.push(`-rpcwallet=${walletName}`);
   return execFileSync(bitcoinCli, [...common, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
@@ -107,11 +109,8 @@ function buildCandidateScript(unlockHeight: number, publicKey: Uint8Array): Uint
 }
 
 try {
-  if (!existsSync(bitcoind) && bitcoind === "bitcoind") throw new Error("bitcoind was not found. Set BITCOIND to an official Bitcoin Core binary path.");
-  if (!existsSync(bitcoinCli) && bitcoinCli === "bitcoin-cli") throw new Error("bitcoin-cli was not found. Set BITCOINCLI to an official Bitcoin Core binary path.");
-
   const daemon = spawn(bitcoind, [
-    `-datadir=${datadir}`, "-regtest", "-server=1", "-listen=0", "-connect=0", "-dnsseed=0", "-discover=0", "-fallbackfee=0.0001", "-printtoconsole=0",
+    `-datadir=${datadir}`, "-regtest", "-server=1", `-port=${p2pPort}`, `-rpcport=${rpcPort}`, "-listen=0", "-connect=0", "-dnsseed=0", "-discover=0", "-fallbackfee=0.0001", "-printtoconsole=0",
   ], { detached: true, stdio: "ignore" });
   daemonPid = daemon.pid;
   daemon.unref();
@@ -119,7 +118,7 @@ try {
 
   const chain = json<{ blocks: number; chain: string }>(["getblockchaininfo"]);
   if (chain.chain !== "regtest") throw new Error(`Unsafe chain selected: ${chain.chain}`);
-  console.log(`CORE chain=regtest initialHeight=${chain.blocks} version=${json<{ subversion: string }>(["getnetworkinfo"]).subversion}`);
+  console.log(`CORE chain=regtest initialHeight=${chain.blocks} rpcPort=${rpcPort} p2pPort=${p2pPort} version=${json<{ subversion: string }>(["getnetworkinfo"]).subversion}`);
 
   cli(["createwallet", funderWallet]);
   cli(["createwallet", signerWallet]);
