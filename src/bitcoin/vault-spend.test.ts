@@ -87,6 +87,30 @@ describe("offline Vault UTXO and BIP174 PSBT preparation", () => {
     expect(() => verifyFundingTransaction(plan, 1, funding.toHex(), 0)).toThrow(/does not belong/i);
   });
 
+  it("rejects invalid funding boundaries before constructing a Vault UTXO", () => {
+    const { plan, funding, deposit } = testContext();
+    expect(() => verifyFundingTransaction(plan, 0, funding.toHex(), -1)).toThrow(/vout/i);
+    expect(() => verifyFundingTransaction(plan, 0, funding.toHex(), 0.5)).toThrow(/vout/i);
+    expect(() => verifyFundingTransaction(plan, 0, funding.toHex(), 0x1_0000_0000)).toThrow(/vout/i);
+    expect(() => verifyFundingTransaction(plan, 0, "", 0)).toThrow(/raw transaction/i);
+    expect(() => verifyFundingTransaction(plan, 0, "01000000", 0)).toThrow(/raw transaction/i);
+
+    const zeroValue = new Transaction();
+    zeroValue.addInput(new Uint8Array(32).fill(0x11), 0);
+    zeroValue.addOutput(hexToBytes(deposit.outputScript), 0n);
+    expect(() => verifyFundingTransaction(plan, 0, zeroValue.toHex(), 0)).toThrow(/positive, safe-integer/i);
+
+    const unsafeValue = new Transaction();
+    unsafeValue.addInput(new Uint8Array(32).fill(0x22), 0);
+    unsafeValue.addOutput(hexToBytes(deposit.outputScript), BigInt(Number.MAX_SAFE_INTEGER) + 1n);
+    expect(() => verifyFundingTransaction(plan, 0, unsafeValue.toHex(), 0)).toThrow(/positive, safe-integer/i);
+
+    const wrongScript = new Transaction();
+    wrongScript.addInput(new Uint8Array(32).fill(0x33), 0);
+    wrongScript.addOutput(Uint8Array.of(0x51), 1n);
+    expect(() => verifyFundingTransaction(plan, 0, wrongScript.toHex(), 0)).toThrow(/does not belong/i);
+  });
+
   it("uses integer fee, policy locktime, and the non-final non-RBF sequence", () => {
     const { verified, intent, destination, mainnetDestination } = testContext();
     expect(intent.destinationValueSats).toBe(499_500);
@@ -97,6 +121,29 @@ describe("offline Vault UTXO and BIP174 PSBT preparation", () => {
     expect(() => createVaultSpendIntent(verified.utxo, destination, 500_000)).toThrow(/less than/i);
     expect(() => createVaultSpendIntent(verified.utxo, "bc1qnotatestaddress", 500)).toThrow(/invalid|different/i);
     expect(() => createVaultSpendIntent(verified.utxo, mainnetDestination, 500)).toThrow(/invalid|different/i);
+  });
+
+  it("rejects decimal, non-finite, and oversized fees", () => {
+    const { verified, destination } = testContext();
+    for (const feeSats of [0.5, Number.NaN, Number.POSITIVE_INFINITY, verified.utxo.valueSats + 1]) {
+      expect(() => createVaultSpendIntent(verified.utxo, destination, feeSats)).toThrow();
+    }
+  });
+
+  it("rejects each SpendIntent field that must match the verified Vault UTXO", () => {
+    const { verified, intent } = testContext();
+    const mutations = [
+      { network: "signet" as const },
+      { planIdentity: "different-plan" },
+      { depositIndex: verified.utxo.depositIndex + 1 },
+      { fundingTxid: "f".repeat(64) },
+      { fundingVout: verified.utxo.vout + 1 },
+      { inputValueSats: verified.utxo.valueSats - 1, destinationValueSats: intent.destinationValueSats - 1 },
+      { unlockHeight: verified.utxo.unlockHeight + 1 },
+    ];
+    for (const mutation of mutations) {
+      expect(() => buildUnsignedVaultPsbt({ ...intent, ...mutation }, verified.utxo)).toThrow(/does not match/i);
+    }
   });
 
   it("builds deterministic one-input one-output PSBT v0 carrying witness data", () => {
@@ -228,6 +275,35 @@ describe("offline Vault UTXO and BIP174 PSBT preparation", () => {
     ];
     for (const altered of variants) {
       expect(() => validateSignedVaultPsbt(intent, verified.utxo, altered())).toThrow(/differs|changes|missing/i);
+    }
+  });
+
+  it("rejects hostile witness data, sighash, outpoint, signatures, and premature finalization fields", () => {
+    const { child, unsigned, intent, verified } = testContext();
+    const signed = sign(unsigned.base64, child.privateKey!, child.publicKey!);
+    const additionalPublicKey = HDKey.fromMasterSeed(randomBytes(32), testnetBip32Versions).deriveChild(0).publicKey!;
+    const mutations: Array<{ description: string; apply: (psbt: Psbt) => void }> = [
+      { description: "witness UTXO", apply: (psbt) => { psbt.data.inputs[0].witnessUtxo = { script: hexToBytes(verified.utxo.outputScript), value: BigInt(verified.utxo.valueSats - 1) }; } },
+      { description: "sighash type", apply: (psbt) => { psbt.data.inputs[0].sighashType = Transaction.SIGHASH_NONE; } },
+      { description: "funding vout", apply: (psbt) => {
+        const unsignedTransaction = psbt.data.globalMap.unsignedTx as unknown as { tx: Transaction };
+        unsignedTransaction.tx.ins[0].index = intent.fundingVout + 1;
+      } },
+      { description: "multiple partial signatures", apply: (psbt) => {
+        const signature = psbt.data.inputs[0].partialSig?.[0];
+        if (!signature) throw new Error("Expected a signed test PSBT.");
+        psbt.data.inputs[0].partialSig = [signature, { pubkey: additionalPublicKey, signature: signature.signature }];
+      } },
+      { description: "invalid DER signature", apply: (psbt) => { psbt.data.inputs[0].partialSig = [{ pubkey: child.publicKey!, signature: Uint8Array.of(0x30, 0x00, Transaction.SIGHASH_ALL) }]; } },
+      { description: "final scriptSig", apply: (psbt) => { psbt.data.inputs[0].finalScriptSig = Uint8Array.of(0x00); } },
+      { description: "final script witness", apply: (psbt) => { psbt.data.inputs[0].finalScriptWitness = Uint8Array.of(0x00); } },
+    ];
+    for (const { description, apply: applyMutation } of mutations) {
+      const psbt = Psbt.fromBase64(signed, { network: bitcoinNetworkFor("regtest") });
+      applyMutation(psbt);
+      const hostile = psbt.toBase64();
+      expect(() => validateSignedVaultPsbt(intent, verified.utxo, hostile), description).toThrow();
+      expect(() => finalizeVaultPsbt(intent, verified.utxo, hostile), description).toThrow();
     }
   });
 });

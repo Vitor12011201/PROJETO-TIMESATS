@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { LEGACY_VAULT_PLAN_VERSION, type VaultPlan } from "@/domain/vault-plan";
+import { LEGACY_VAULT_PLAN_VERSION, MAX_NON_HARDENED_INDEX, type VaultPlan } from "@/domain/vault-plan";
 import {
   createVaultPlan,
   createVaultPlanRecoveryBundle,
@@ -44,6 +44,10 @@ describe("VaultPlan public-only deterministic derivation", () => {
     expect(() => createVaultPlan(input)).toThrow();
   });
 
+  it("rejects labels longer than the existing 80-character schema limit", () => {
+    expect(() => createVaultPlan({ ...planInput(), label: "a".repeat(81) })).toThrow(/80 characters/i);
+  });
+
   it("rejects mainnet at the plan boundary", () => {
     expect(() => createVaultPlan({ ...planInput(), network: "mainnet" as never })).toThrow(/Mainnet|Invalid enum/);
   });
@@ -79,6 +83,13 @@ describe("VaultPlan public-only deterministic derivation", () => {
 
   it("rejects hardened derivation indexes", () => {
     expect(() => deriveNonHardenedPublicKey(validTestTpub, 0x80000000)).toThrow(/non-hardened/);
+  });
+
+  it("rejects negative, out-of-range, and hardened public deposit indexes", () => {
+    const plan = createVaultPlan(planInput());
+    for (const index of [-1, MAX_NON_HARDENED_INDEX + 1, 0x80000000]) {
+      expect(() => deriveDeposit(plan, index)).toThrow(/non-hardened/i);
+    }
   });
 
   it("derives Deposit #0 and #1 deterministically and differently", () => {
@@ -122,6 +133,18 @@ describe("VaultPlan public-only deterministic derivation", () => {
     for (const forbidden of ["seed", "mnemonic", "private", "wif", "xprv", "tprv"]) {
       expect(serialized).not.toContain(forbidden);
     }
+  });
+
+  it("issues Deposit #6 after reconstructing recovery state at index 5", () => {
+    const issued = { ...createVaultPlan(planInput()), lastIssuedIndex: 5 } as VaultPlan;
+    const restored = reconstructVaultPlan(createVaultPlanRecoveryBundle(issued));
+    const next = issueNextDeposit(restored);
+
+    expect(next.plan.lastIssuedIndex).toBe(6);
+    expect(next.deposit.index).toBe(6);
+    expect(next.deposit).toEqual(deriveDeposit(restored, 6));
+    expect(deriveIssuedDeposits(next.plan).map((deposit) => deposit.index)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(next.deposit.address).not.toBe(deriveDeposit(restored, 5).address);
   });
 
   it("rejects invalid, altered, and inconsistent recovery bundles", () => {
@@ -185,6 +208,14 @@ describe("VaultPlan public-only deterministic derivation", () => {
     expect(() => createVaultPlan({ ...interoperablePlanInput(), keyOrigin: { ...validTestTpubOrigin, sourcePath: "m" } })).toThrow(/depth/i);
     expect(() => createVaultPlan({ ...interoperablePlanInput(), keyOrigin: { ...validTestTpubOrigin, sourcePath: "m/44'/1'/1'" } })).toThrow(/child number/i);
     expect(() => createVaultPlan({ ...interoperablePlanInput(), keyOrigin: { ...validTestTpubOrigin, sourcePath: "m/44'/1'/0" } })).toThrow(/child number/i);
+  });
+
+  it("accepts the maximum non-hardened source child and rejects the next value", () => {
+    const maximumChildTpub = parseTestExtendedPublicKey(validTestTpub).deriveChild(MAX_NON_HARDENED_INDEX).publicExtendedKey;
+    const maximumOrigin = { ...validTestTpubOrigin, sourcePath: "m/44'/1'/0'/2147483647" };
+    const plan = createVaultPlan({ ...interoperablePlanInput(), extendedPublicKey: maximumChildTpub, keyOrigin: maximumOrigin });
+    expect(plan.policy.keySource.type).toBe("bip32-testnet-xpub-with-origin");
+    expect(() => createVaultPlan({ ...interoperablePlanInput(), extendedPublicKey: maximumChildTpub, keyOrigin: { ...maximumOrigin, sourcePath: "m/44h/1H/0h/2147483648" } })).toThrow(/invalid BIP32 child number/i);
   });
 
   it("checks a root tpub against its public master fingerprint", () => {
