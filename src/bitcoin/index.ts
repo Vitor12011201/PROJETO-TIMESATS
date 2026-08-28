@@ -29,3 +29,15 @@ export type { AllowedNetwork } from "@/domain/vault-policy";
 export type { VaultSpendIntent, VaultUtxo } from "@/domain/vault-spend";
 export type { DerivedDeposit, VaultPlanRecoveryBundle } from "./vault-plan";
 export type { FinalizedVaultSpend, UnsignedVaultPsbt, VerifiedFunding } from "./vault-spend";
+export type {
+  ChainObservationTarget,
+  ChainObserver,
+  ExternalSigner,
+  ExternalSignerRequest,
+  ExternalSignerResponse,
+  FindFundingCandidatesRequest,
+  FundingCandidate,
+  TransactionBroadcastRequest,
+  TransactionBroadcaster,
+  TransactionBroadcastResult,
+} from "./external-contracts";
