@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { VaultPlanSchema, type VaultPlan } from "@/domain/vault-plan";
-import { parseVaultPlan, vaultPlanIdentity } from "@/bitcoin/vault-plan";
+import { parseVaultPlan, vaultPlanIdentity, type VaultPlan } from "@/bitcoin";
+import { VaultPlanSchema } from "@/domain/vault-plan";
 
 export const VAULT_PLAN_STORAGE_KEY = "timesats.vault-plans.v3";
 const LEGACY_VAULT_PLAN_STORAGE_KEY = "timesats.vault-plans.v2";

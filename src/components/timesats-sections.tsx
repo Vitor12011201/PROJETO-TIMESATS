@@ -22,17 +22,22 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import type { DerivedDeposit } from "@/bitcoin/vault-plan";
 import {
+  allowedNetworks,
   buildUnsignedVaultPsbt,
   createVaultSpendIntent,
   finalizeVaultPsbt,
   validateSignedVaultPsbt,
   verifyFundingTransaction,
-} from "@/bitcoin/vault-spend";
-import type { VaultSpendIntent, VaultUtxo } from "@/domain/vault-spend";
-import type { CreateVaultPlanInput, VaultPlan } from "@/domain/vault-plan";
-import { allowedNetworks, type AllowedNetwork } from "@/domain/vault-policy";
+} from "@/bitcoin";
+import type {
+  AllowedNetwork,
+  CreateVaultPlanInput,
+  DerivedDeposit,
+  VaultPlan,
+  VaultSpendIntent,
+  VaultUtxo,
+} from "@/bitcoin";
 import packageJson from "../../package.json";
 import styles from "./timesats-ui.module.css";
 

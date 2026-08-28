@@ -7,8 +7,8 @@ import {
   deriveIssuedDeposits,
   issueNextDeposit,
   reconstructVaultPlan,
-} from "@/bitcoin/vault-plan";
-import type { CreateVaultPlanInput, VaultPlan } from "@/domain/vault-plan";
+} from "@/bitcoin";
+import type { CreateVaultPlanInput, VaultPlan } from "@/bitcoin";
 import { loadVaultPlans, saveVaultPlans, upsertVaultPlan } from "@/storage/vault-plan-storage";
 import { ActivePlanCard, CreatePlanDialog, Footer, Header, Hero, HowItWorks, PlansGrid, PrepareSpendDialog } from "./timesats-sections";
 import styles from "./timesats-ui.module.css";
