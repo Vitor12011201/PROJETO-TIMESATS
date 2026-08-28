@@ -40,10 +40,13 @@ export function saveVaultPlans(storage: Pick<Storage, "setItem">, plans: VaultPl
   );
 }
 
-/** Replaces only the same public policy; user-facing metadata may change safely. */
+/** Replaces only the same public policy; metadata follows the incoming valid plan and issuance never regresses. */
 export function upsertVaultPlan(plans: VaultPlan[], plan: VaultPlan): VaultPlan[] {
-  const identity = vaultPlanIdentity(plan);
+  const incoming = parseVaultPlan(plan);
+  const identity = vaultPlanIdentity(incoming);
   const existingIndex = plans.findIndex((candidate) => vaultPlanIdentity(candidate) === identity);
-  if (existingIndex < 0) return [...plans, parseVaultPlan(plan)];
-  return plans.map((candidate, index) => (index === existingIndex ? parseVaultPlan(plan) : candidate));
+  if (existingIndex < 0) return [...plans, incoming];
+  const existing = parseVaultPlan(plans[existingIndex]);
+  const reconciled = parseVaultPlan({ ...incoming, lastIssuedIndex: Math.max(existing.lastIssuedIndex, incoming.lastIssuedIndex) });
+  return plans.map((candidate, index) => (index === existingIndex ? reconciled : candidate));
 }

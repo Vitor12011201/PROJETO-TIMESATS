@@ -47,4 +47,20 @@ describe("public-only local VaultPlan storage", () => {
     const renamed = { ...original, metadata: { label: "Aposentadoria" } };
     expect(upsertVaultPlan([original], renamed)).toEqual([renamed]);
   });
+
+  it("keeps issuance monotonic while preserving incoming metadata for the same identity", () => {
+    const existing = { ...plan(), lastIssuedIndex: 5, metadata: { label: "Estado local" } };
+    const olderRecovery = { ...plan(), lastIssuedIndex: 1, metadata: { label: "Recovery importado" } };
+    const newerRecovery = { ...plan(), lastIssuedIndex: 7, metadata: { label: "Recovery mais novo" } };
+
+    expect(upsertVaultPlan([existing], olderRecovery)).toEqual([{ ...olderRecovery, lastIssuedIndex: 5 }]);
+    expect(upsertVaultPlan([{ ...plan(), lastIssuedIndex: 1 }], newerRecovery)).toEqual([newerRecovery]);
+  });
+
+  it("does not merge plans whose canonical identities differ", () => {
+    const regtest = plan();
+    const signet = createVaultPlan({ label: "Signet", network: "signet", unlockHeight: regtest.policy.unlockHeight, extendedPublicKey: regtest.policy.keySource.extendedPublicKey });
+
+    expect(upsertVaultPlan([regtest], signet)).toEqual([regtest, signet]);
+  });
 });

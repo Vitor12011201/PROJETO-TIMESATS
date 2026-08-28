@@ -9,7 +9,7 @@ import {
   reconstructVaultPlan,
 } from "./vault-plan";
 import { deriveNonHardenedPublicKey, parseTestExtendedPublicKey } from "./bip32";
-import { validTestTpub } from "@/tests/fixtures";
+import { validTestTpub, validTestTpubOrigin } from "@/tests/fixtures";
 
 function planInput() {
   return {
@@ -24,7 +24,7 @@ function interoperablePlanInput() {
   return {
     ...planInput(),
     policyVersion: 2 as const,
-    keyOrigin: { masterFingerprint: "deadbeef", sourcePath: "m/84'/1'/0'/0" },
+    keyOrigin: validTestTpubOrigin,
   };
 }
 
@@ -153,16 +153,16 @@ describe("VaultPlan public-only deterministic derivation", () => {
     expect(v2.version).toBe(3);
     expect(v2.policy.policyVersion).toBe(2);
     expect(v2.policy.keySource.type).toBe("bip32-testnet-xpub-with-origin");
-    expect(deriveDeposit(v2, 0).absoluteDerivationPath).toBe("m/84'/1'/0'/0/0");
+    expect(deriveDeposit(v2, 0).absoluteDerivationPath).toBe("m/44'/1'/0'/0");
     expect(deriveDeposit(v2, 0).address).not.toBe(deriveDeposit(v1, 0).address);
   });
 
   it("normalizes hardened source-path markers and appends the child index once", () => {
-    const plan = createVaultPlan({ ...interoperablePlanInput(), keyOrigin: { masterFingerprint: "DEADBEEF", sourcePath: "m/84h/1H/0h/0" } });
+    const plan = createVaultPlan({ ...interoperablePlanInput(), keyOrigin: { masterFingerprint: "6F53D49C", sourcePath: "m/44h/1H/0h" } });
     expect(plan.policy.keySource.type).toBe("bip32-testnet-xpub-with-origin");
     if (plan.policy.keySource.type !== "bip32-testnet-xpub-with-origin") throw new Error("Expected V2 key source.");
-    expect(plan.policy.keySource.keyOrigin).toEqual({ masterFingerprint: "deadbeef", sourcePath: "m/84'/1'/0'/0" });
-    expect(deriveDeposit(plan, 7).absoluteDerivationPath).toBe("m/84'/1'/0'/0/7");
+    expect(plan.policy.keySource.keyOrigin).toEqual(validTestTpubOrigin);
+    expect(deriveDeposit(plan, 7).absoluteDerivationPath).toBe("m/44'/1'/0'/7");
   });
 
   it("round-trips V2 recovery while retaining the V1 recovery format", () => {
@@ -175,9 +175,22 @@ describe("VaultPlan public-only deterministic derivation", () => {
   });
 
   it.each([
-    { ...interoperablePlanInput(), keyOrigin: { masterFingerprint: "not-hex", sourcePath: "m/84'/1'/0'/0" } },
-    { ...interoperablePlanInput(), keyOrigin: { masterFingerprint: "deadbeef", sourcePath: "m/not-a-path" } },
+    { ...interoperablePlanInput(), keyOrigin: { masterFingerprint: "not-hex", sourcePath: "m/44'/1'/0'" } },
+    { ...interoperablePlanInput(), keyOrigin: { masterFingerprint: "6f53d49c", sourcePath: "m/not-a-path" } },
   ])("rejects malformed V2 key-origin metadata", (input) => {
     expect(() => createVaultPlan(input)).toThrow();
+  });
+
+  it("requires V2 origin depth and child number to match the supplied tpub", () => {
+    expect(() => createVaultPlan({ ...interoperablePlanInput(), keyOrigin: { ...validTestTpubOrigin, sourcePath: "m" } })).toThrow(/depth/i);
+    expect(() => createVaultPlan({ ...interoperablePlanInput(), keyOrigin: { ...validTestTpubOrigin, sourcePath: "m/44'/1'/1'" } })).toThrow(/child number/i);
+    expect(() => createVaultPlan({ ...interoperablePlanInput(), keyOrigin: { ...validTestTpubOrigin, sourcePath: "m/44'/1'/0" } })).toThrow(/child number/i);
+  });
+
+  it("checks a root tpub against its public master fingerprint", () => {
+    const rootTpub = "tpubD6NzVbkrYhZ4Yeqkh5GKpfjjeB9cqLnnXzBvPB8g3qsRuUFvXe754t4g6rNhyw8vK7isRuwR9Vz3NeCd4LhS1rk8eHtBJERoSaLacdVSFnv";
+    const input = { ...planInput(), extendedPublicKey: rootTpub, policyVersion: 2 as const, keyOrigin: { masterFingerprint: "35885c45", sourcePath: "m" } };
+    expect(createVaultPlan(input).policy.policyVersion).toBe(2);
+    expect(() => createVaultPlan({ ...input, keyOrigin: { ...input.keyOrigin, masterFingerprint: "00000000" } })).toThrow(/master fingerprint/i);
   });
 });

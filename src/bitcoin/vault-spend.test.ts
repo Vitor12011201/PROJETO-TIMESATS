@@ -56,6 +56,10 @@ function signPsbt(psbt: Psbt, privateKey: Uint8Array, publicKey: Uint8Array): st
   return psbt.toBase64();
 }
 
+function rootKeyOrigin(root: HDKey): { masterFingerprint: string; sourcePath: "m" } {
+  return { masterFingerprint: root.fingerprint.toString(16).padStart(8, "0"), sourcePath: "m" };
+}
+
 /** Deliberately bypasses the library's "pubkey must be in script" guard for a negative test. */
 function attachWrongKeySignature(psbt: Psbt, privateKey: Uint8Array, publicKey: Uint8Array): string {
   const input = psbt.data.inputs[0];
@@ -113,7 +117,7 @@ describe("offline Vault UTXO and BIP174 PSBT preparation", () => {
 
   it("adds V2 BIP32 metadata only when a public key origin is part of the plan", () => {
     const root = HDKey.fromMasterSeed(randomBytes(32), testnetBip32Versions);
-    const plan = createVaultPlan({ label: "V2", network: "regtest", unlockHeight: 250, extendedPublicKey: root.publicExtendedKey, policyVersion: 2, keyOrigin: { masterFingerprint: "deadbeef", sourcePath: "m" } });
+    const plan = createVaultPlan({ label: "V2", network: "regtest", unlockHeight: 250, extendedPublicKey: root.publicExtendedKey, policyVersion: 2, keyOrigin: rootKeyOrigin(root) });
     const deposit = deriveDeposit(plan, 0);
     const funding = new Transaction();
     funding.addInput(new Uint8Array(32), 0);
@@ -122,14 +126,14 @@ describe("offline Vault UTXO and BIP174 PSBT preparation", () => {
     const destinationKey = HDKey.fromMasterSeed(randomBytes(32), testnetBip32Versions).deriveChild(1).publicKey!;
     const destination = payments.p2wpkh({ pubkey: destinationKey, network: bitcoinNetworkFor("regtest") }).address!;
     const psbt = Psbt.fromBase64(buildUnsignedVaultPsbt(createVaultSpendIntent(verified.utxo, destination, 500), verified.utxo).base64);
-    expect(psbt.data.inputs[0].bip32Derivation).toEqual([{ masterFingerprint: hexToBytes("deadbeef"), path: "m/0", pubkey: hexToBytes(deposit.publicKey) }]);
+    expect(psbt.data.inputs[0].bip32Derivation).toEqual([{ masterFingerprint: hexToBytes(rootKeyOrigin(root).masterFingerprint), path: "m/0", pubkey: hexToBytes(deposit.publicKey) }]);
   });
 
   it("rejects hostile V2 fingerprint, path, child-index, and public-key origin substitutions", () => {
     const root = HDKey.fromMasterSeed(randomBytes(32), testnetBip32Versions);
     const child = root.deriveChild(0);
     if (!child.privateKey || !child.publicKey) throw new Error("V2 test signer unavailable.");
-    const plan = createVaultPlan({ label: "V2", network: "regtest", unlockHeight: 250, extendedPublicKey: root.publicExtendedKey, policyVersion: 2, keyOrigin: { masterFingerprint: "deadbeef", sourcePath: "m" } });
+    const plan = createVaultPlan({ label: "V2", network: "regtest", unlockHeight: 250, extendedPublicKey: root.publicExtendedKey, policyVersion: 2, keyOrigin: rootKeyOrigin(root) });
     const deposit = deriveDeposit(plan, 0);
     const funding = new Transaction(); funding.addInput(new Uint8Array(32), 0); funding.addOutput(hexToBytes(deposit.outputScript), 500_000n);
     const verified = verifyFundingTransaction(plan, 0, funding.toHex(), 0);
@@ -139,8 +143,8 @@ describe("offline Vault UTXO and BIP174 PSBT preparation", () => {
     const unsigned = buildUnsignedVaultPsbt(intent, verified.utxo).base64;
     const variants = [
       { masterFingerprint: hexToBytes("feedface"), path: "m/0", pubkey: hexToBytes(deposit.publicKey) },
-      { masterFingerprint: hexToBytes("deadbeef"), path: "m/1", pubkey: hexToBytes(deposit.publicKey) },
-      { masterFingerprint: hexToBytes("deadbeef"), path: "m/0", pubkey: HDKey.fromMasterSeed(randomBytes(32), testnetBip32Versions).deriveChild(0).publicKey! },
+      { masterFingerprint: hexToBytes(rootKeyOrigin(root).masterFingerprint), path: "m/1", pubkey: hexToBytes(deposit.publicKey) },
+      { masterFingerprint: hexToBytes(rootKeyOrigin(root).masterFingerprint), path: "m/0", pubkey: HDKey.fromMasterSeed(randomBytes(32), testnetBip32Versions).deriveChild(0).publicKey! },
     ];
     for (const bip32Derivation of variants) {
       const psbt = Psbt.fromBase64(unsigned, { network: bitcoinNetworkFor("regtest") });

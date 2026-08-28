@@ -44,12 +44,47 @@ function normalizeOrigin(origin: VaultKeyOrigin): VaultKeyOrigin {
   return { masterFingerprint: origin.masterFingerprint.toLowerCase(), sourcePath: origin.sourcePath.replace(/(\d+)[hH]/g, "$1'") };
 }
 
+function sourcePathChildNumbers(sourcePath: string): number[] {
+  if (sourcePath === "m") return [];
+  return sourcePath.slice(2).split("/").map((component) => {
+    const hardened = component.endsWith("'");
+    const index = Number(component.slice(0, hardened ? -1 : undefined));
+    if (!Number.isSafeInteger(index) || index < 0 || index > MAX_NON_HARDENED_INDEX) {
+      throw new Error("Public key origin path contains an invalid BIP32 child number.");
+    }
+    return hardened ? index + 0x80000000 : index;
+  });
+}
+
+function fingerprintHex(fingerprint: number): string {
+  return fingerprint.toString(16).padStart(8, "0");
+}
+
+function assertV2OriginMatchesExtendedPublicKey(extendedPublicKey: string, origin: VaultKeyOrigin): void {
+  const key = parseTestExtendedPublicKey(extendedPublicKey);
+  const childNumbers = sourcePathChildNumbers(origin.sourcePath);
+  if (key.depth !== childNumbers.length) {
+    throw new Error("Public key origin path depth does not match the supplied tpub.");
+  }
+  if (key.depth > 0 && key.index !== childNumbers[childNumbers.length - 1]) {
+    throw new Error("Public key origin path child number does not match the supplied tpub.");
+  }
+  // A descendant tpub cannot prove its parent or master fingerprint without ancestor public keys.
+  if (key.depth === 0 && origin.masterFingerprint !== fingerprintHex(key.fingerprint)) {
+    throw new Error("Public key origin master fingerprint does not match the supplied root tpub.");
+  }
+}
+
 function normalizePlan(plan: VaultPlan): VaultPlan {
   assertAllowedNetwork(plan.policy.network);
   const extendedPublicKey = parseTestExtendedPublicKey(plan.policy.keySource.extendedPublicKey).publicExtendedKey;
-  const keySource = plan.policy.policyVersion === VAULT_POLICY_V2
-    ? { ...plan.policy.keySource, extendedPublicKey, keyOrigin: normalizeOrigin(plan.policy.keySource.keyOrigin) }
-    : { ...plan.policy.keySource, extendedPublicKey };
+  if (plan.policy.policyVersion === VAULT_POLICY_V2) {
+    const keyOrigin = normalizeOrigin(plan.policy.keySource.keyOrigin);
+    assertV2OriginMatchesExtendedPublicKey(extendedPublicKey, keyOrigin);
+    const keySource = { ...plan.policy.keySource, extendedPublicKey, keyOrigin };
+    return { ...plan, metadata: { label: plan.metadata.label.trim() }, policy: { ...plan.policy, keySource } } as VaultPlan;
+  }
+  const keySource = { ...plan.policy.keySource, extendedPublicKey };
   return { ...plan, metadata: { label: plan.metadata.label.trim() }, policy: { ...plan.policy, keySource } } as VaultPlan;
 }
 

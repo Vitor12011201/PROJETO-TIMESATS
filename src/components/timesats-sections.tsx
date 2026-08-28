@@ -29,6 +29,7 @@ import {
   finalizeVaultPsbt,
   validateSignedVaultPsbt,
   verifyFundingTransaction,
+  vaultPlanIdentity,
 } from "@/bitcoin";
 import type {
   AllowedNetwork,
@@ -39,6 +40,7 @@ import type {
   VaultUtxo,
 } from "@/bitcoin";
 import packageJson from "../../package.json";
+import { decodePsbtFile, psbtBase64ToBytes } from "./psbt-file";
 import styles from "./timesats-ui.module.css";
 
 const githubUrl = "https://github.com/Vitor12011201/PROJETO-TIMESATS";
@@ -148,13 +150,13 @@ interface PlansGridProps { activePlan: VaultPlan | null; plans: VaultPlan[]; onC
 export function PlansGrid({ activePlan, plans, onCreate, onSelect, onImport }: PlansGridProps) {
   return <section className={styles.plansSection} aria-labelledby="plans-heading">
     <div className={styles.sectionHeader}><div><h2 id="plans-heading">Meus planos</h2><p>Visão geral dos seus compromissos de longo prazo.</p></div><div className={styles.sectionActions}><button type="button" className={styles.subtleButton} onClick={onImport}><Upload aria-hidden="true" size={15} /> Importar</button><button type="button" className={styles.outlineButton} onClick={onCreate}><Plus aria-hidden="true" size={17} /> Novo plano</button></div></div>
-    {plans.length === 0 ? <div className={styles.emptyPlans}><p>Nenhum plano criado ainda.</p><span>Crie seu primeiro compromisso de longo prazo.</span><button type="button" className={styles.primaryButton} onClick={onCreate}>Criar meu plano <ChevronRight aria-hidden="true" size={18} /></button></div> : <div className={styles.plansGrid}>{plans.map((plan, index) => <PlanCard key={plan.policy.keySource.extendedPublicKey + plan.policy.unlockHeight} plan={plan} active={activePlan?.policy.keySource.extendedPublicKey === plan.policy.keySource.extendedPublicKey && activePlan.policy.unlockHeight === plan.policy.unlockHeight} onSelect={() => onSelect(plan)} index={index} />)}<button type="button" className={styles.newPlanCard} onClick={onCreate}><span><Plus aria-hidden="true" size={29} /></span><div><strong>Criar novo plano</strong><p>Comece um novo compromisso de longo prazo.</p></div></button></div>}
+    {plans.length === 0 ? <div className={styles.emptyPlans}><p>Nenhum plano criado ainda.</p><span>Crie seu primeiro compromisso de longo prazo.</span><button type="button" className={styles.primaryButton} onClick={onCreate}>Criar meu plano <ChevronRight aria-hidden="true" size={18} /></button></div> : <div className={styles.plansGrid}>{plans.map((plan, index) => <PlanCard key={vaultPlanIdentity(plan)} plan={plan} active={activePlan !== null && vaultPlanIdentity(activePlan) === vaultPlanIdentity(plan)} onSelect={() => onSelect(plan)} index={index} />)}<button type="button" className={styles.newPlanCard} onClick={onCreate}><span><Plus aria-hidden="true" size={29} /></span><div><strong>Criar novo plano</strong><p>Comece um novo compromisso de longo prazo.</p></div></button></div>}
   </section>;
 }
 
 function PlanCard({ plan, active, onSelect, index }: { plan: VaultPlan; active: boolean; onSelect: () => void; index: number }) {
   const Icon = index % 2 === 0 ? House : Landmark;
-  return <button type="button" className={`${styles.planCard} ${active ? styles.planCardActive : ""}`} onClick={onSelect}>
+  return <button type="button" className={`${styles.planCard} ${active ? styles.planCardActive : ""}`} onClick={onSelect} aria-pressed={active}>
     <span className={styles.planIcon}><Icon aria-hidden="true" size={28} /></span><div className={styles.planCardBody}><strong>{plan.metadata.label}</strong><span><LockKeyhole aria-hidden="true" size={13} /> Bloco {plan.policy.unlockHeight}</span><small>{plan.lastIssuedIndex + 1} {plan.lastIssuedIndex === 0 ? "endereço emitido" : "endereços emitidos"}</small></div><div className={styles.planIndex}><span>Próximo índice</span><strong>#{plan.lastIssuedIndex + 1}</strong></div><ChevronRight aria-hidden="true" size={18} /></button>;
 }
 
@@ -173,6 +175,16 @@ interface PrepareSpendDialogProps {
 }
 
 function downloadText(value: string, fileName: string, type: string): void {
+  const blob = new Blob([value], { type });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadBytes(value: Uint8Array, fileName: string, type: string): void {
   const blob = new Blob([value], { type });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -239,7 +251,9 @@ export function PrepareSpendDialog({ plan, depositIndex, onClose }: PrepareSpend
   async function importSignedFile(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.target.files?.[0];
     if (!file) return;
-    try { setSignedBase64((await file.text()).trim()); setFinalTransaction(null); setError(null); } catch { setError("Não foi possível ler o arquivo PSBT."); }
+    setSignedBase64("");
+    setFinalTransaction(null);
+    try { setSignedBase64(decodePsbtFile(new Uint8Array(await file.arrayBuffer()))); setError(null); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível ler o arquivo PSBT."); }
     finally { event.target.value = ""; }
   }
 
@@ -251,7 +265,7 @@ export function PrepareSpendDialog({ plan, depositIndex, onClose }: PrepareSpend
     <div className={styles.spendStep}><h3>1. Verificar UTXO</h3><label htmlFor="funding-hex">Transação de funding em raw hex<textarea id="funding-hex" value={fundingHex} onChange={(event) => { setFundingHex(event.target.value); invalidateFunding(); }} spellCheck="false" autoComplete="off" /></label><label htmlFor="funding-vout">Vout<input id="funding-vout" value={vout} onChange={(event) => { setVout(event.target.value); invalidateFunding(); }} inputMode="numeric" autoComplete="off" /></label><button type="button" className={styles.subtleButton} onClick={verifyUtxo}>Verificar UTXO</button>
       {verified && <div className={styles.verifiedBox}><strong>UTXO verificado</strong><span>TXID: <code>{verified.txid}</code> · Vout: {verified.vout}</span><span>Valor: {verified.valueSats.toLocaleString("pt-BR")} sats</span><span>Script corresponde ao Depósito #{depositIndex}.</span><small>Isto prova o output na transação informada, não que ele ainda esteja não gasto.</small></div>}</div>
     <div className={styles.spendStep}><h3>2. Destino e fee</h3><label htmlFor="destination-address">Endereço de destino<input id="destination-address" value={destination} onChange={(event) => { setDestination(event.target.value); invalidateSpendArtifacts(); }} spellCheck="false" autoComplete="off" placeholder={plan.policy.network === "regtest" ? "bcrt1…" : "tb1…"} /></label><label htmlFor="fee-sats">Fee (sats)<input id="fee-sats" value={feeSats} onChange={(event) => { setFeeSats(event.target.value); invalidateSpendArtifacts(); }} inputMode="numeric" autoComplete="off" /></label>{verified && <div className={styles.spendSummary}><span>Entrada <strong>{verified.valueSats.toLocaleString("pt-BR")} sats</strong></span><span>Destino <strong>{destinationValue === null ? "—" : `${destinationValue.toLocaleString("pt-BR")} sats`}</strong></span><span>Fee <strong>{feeSats || "—"} sats</strong></span><span>Unlock <strong>bloco {verified.unlockHeight}</strong></span><span>Sequence <strong>0xfffffffe</strong></span></div>}<button type="button" className={styles.primaryButton} onClick={generatePsbt} disabled={!verified}>Gerar PSBT não assinado <FileKey aria-hidden="true" size={17} /></button></div>
-    {unsignedBase64 && <div className={styles.spendStep}><h3>3. PSBT pronto</h3><p className={styles.mutedText}>Um PSBT revela UTXO, valores, scripts, chave pública e destino. Compartilhe-o somente com o signer escolhido.</p><div className={styles.exportButtons}><button type="button" className={styles.subtleButton} onClick={() => copy(unsignedBase64)}><Copy aria-hidden="true" size={15} /> Copiar Base64</button><button type="button" className={styles.subtleButton} onClick={() => downloadText(unsignedBase64, `timesats-deposit-${depositIndex}.psbt`, "application/octet-stream")}><Download aria-hidden="true" size={15} /> Exportar .psbt</button></div><p className={styles.mutedText}>Leve este PSBT a um signer compatível. Preparar ou assinar antecipadamente não desbloqueia o UTXO.</p></div>}
+    {unsignedBase64 && <div className={styles.spendStep}><h3>3. PSBT pronto</h3><p className={styles.mutedText}>Um PSBT revela UTXO, valores, scripts, chave pública e destino. Compartilhe-o somente com o signer escolhido.</p><div className={styles.exportButtons}><button type="button" className={styles.subtleButton} onClick={() => copy(unsignedBase64)}><Copy aria-hidden="true" size={15} /> Copiar Base64</button><button type="button" className={styles.subtleButton} onClick={() => downloadBytes(psbtBase64ToBytes(unsignedBase64), `timesats-deposit-${depositIndex}.psbt`, "application/psbt")}><Download aria-hidden="true" size={15} /> Exportar .psbt</button></div><p className={styles.mutedText}>Leve este PSBT a um signer compatível. Preparar ou assinar antecipadamente não desbloqueia o UTXO.</p></div>}
     {unsignedBase64 && <div className={styles.spendStep}><h3>4. Importar PSBT assinado</h3><label htmlFor="signed-psbt">PSBT assinado (Base64)<textarea id="signed-psbt" value={signedBase64} onChange={(event) => { setSignedBase64(event.target.value); setFinalTransaction(null); }} spellCheck="false" autoComplete="off" /></label><div className={styles.exportButtons}><button type="button" className={styles.subtleButton} onClick={() => signedFile.current?.click()}><FileUp aria-hidden="true" size={15} /> Importar arquivo</button><button type="button" className={styles.primaryButton} onClick={validateSigned}>Validar e finalizar <Send aria-hidden="true" size={16} /></button></div>{finalTransaction && intent && <div className={styles.verifiedBox}><strong>Assinatura válida · raw transaction pronta para transmissão</strong><span>TXID: <code>{finalTransaction.txid}</code></span><div className={styles.spendSummary}><span>Destino <strong><code>{intent.destinationAddress}</code></strong></span><span>Entrada <strong>{intent.inputValueSats.toLocaleString("pt-BR")} sats</strong></span><span>Saída <strong>{intent.destinationValueSats.toLocaleString("pt-BR")} sats</strong></span><span>Fee <strong>{intent.feeSats.toLocaleString("pt-BR")} sats</strong></span><span>Unlock <strong>bloco {intent.unlockHeight}</strong></span></div><label className={styles.rawTransaction} htmlFor="final-raw-transaction">Raw transaction final<textarea id="final-raw-transaction" value={finalTransaction.rawTransaction} readOnly spellCheck="false" aria-label="Raw transaction final pronta para transmissão" /></label><div className={styles.exportButtons}><button type="button" className={styles.subtleButton} onClick={() => copy(finalTransaction.rawTransaction)}><Copy aria-hidden="true" size={15} /> Copiar transação final</button><button type="button" className={styles.subtleButton} onClick={() => downloadText(finalTransaction.rawTransaction, `timesats-spend-${finalTransaction.txid}.hex`, "text/plain")}><Download aria-hidden="true" size={15} /> Exportar raw tx</button></div><small>Validada e finalizada localmente. TimeSats não transmite esta transação.</small></div>}</div>}
     {error && <p role="alert" className={styles.dialogError}>{error}</p>}
     <input ref={signedFile} className={styles.visuallyHidden} type="file" accept=".psbt,application/octet-stream,text/plain" onChange={importSignedFile} aria-label="Importar PSBT assinado" />

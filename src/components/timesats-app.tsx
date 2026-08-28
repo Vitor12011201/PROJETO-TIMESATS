@@ -7,6 +7,7 @@ import {
   deriveIssuedDeposits,
   issueNextDeposit,
   reconstructVaultPlan,
+  vaultPlanIdentity,
 } from "@/bitcoin";
 import type { CreateVaultPlanInput, VaultPlan } from "@/bitcoin";
 import { loadVaultPlans, saveVaultPlans, upsertVaultPlan } from "@/storage/vault-plan-storage";
@@ -45,10 +46,17 @@ export function TimeSatsApp() {
     setPlans(nextPlans);
   }
 
+  function upsertAndPersist(plan: VaultPlan): VaultPlan {
+    const nextPlans = upsertVaultPlan(plans, plan);
+    const reconciled = nextPlans.find((candidate) => vaultPlanIdentity(candidate) === vaultPlanIdentity(plan));
+    if (!reconciled) throw new Error("Could not reconcile the VaultPlan being saved.");
+    persist(nextPlans);
+    return reconciled;
+  }
+
   function createPlan(input: CreateVaultPlanInput): void {
     const plan = createVaultPlan(input);
-    persist(upsertVaultPlan(plans, plan));
-    setActivePlan(plan);
+    setActivePlan(upsertAndPersist(plan));
     setCreateOpen(false);
     setError(null);
     setStorageError(null);
@@ -58,8 +66,7 @@ export function TimeSatsApp() {
     if (!activePlan) return;
     try {
       const { plan } = issueNextDeposit(activePlan);
-      persist(upsertVaultPlan(plans, plan));
-      setActivePlan(plan);
+      setActivePlan(upsertAndPersist(plan));
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível gerar o próximo endereço de depósito.");
@@ -80,8 +87,7 @@ export function TimeSatsApp() {
     if (!file) return;
     try {
       const imported = reconstructVaultPlan(JSON.parse(await file.text()));
-      persist(upsertVaultPlan(plans, imported));
-      setActivePlan(imported);
+      setActivePlan(upsertAndPersist(imported));
       setError(null);
       setStorageError(null);
     } catch (cause) {
