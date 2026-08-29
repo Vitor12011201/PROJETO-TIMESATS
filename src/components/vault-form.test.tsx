@@ -96,16 +96,16 @@ function createPlanAndOpenSpend(): void {
 }
 
 function verifyValidFunding(): void {
-  fireEvent.change(screen.getByLabelText(/Transação de funding em raw hex/i), { target: { value: rawFundingTransaction() } });
-  fireEvent.change(screen.getByLabelText("Vout"), { target: { value: "0" } });
-  fireEvent.click(screen.getByRole("button", { name: "Verificar UTXO" }));
+  fireEvent.change(screen.getByLabelText(/Transação que enviou Bitcoin/i), { target: { value: rawFundingTransaction() } });
+  fireEvent.change(screen.getByLabelText(/Índice da saída \(vout\)/i), { target: { value: "0" } });
+  fireEvent.click(screen.getByRole("button", { name: "Verificar depósito" }));
 }
 
 function generateUnsignedPsbt(): void {
   verifyValidFunding();
   fireEvent.change(screen.getByLabelText(/Endereço de destino/i), { target: { value: "bcrt1qq6hag67dl53wl99vzg42z8eyzfz2xlkvwk6f7m" } });
-  fireEvent.change(screen.getByLabelText("Fee (sats)"), { target: { value: "500" } });
-  fireEvent.click(screen.getByRole("button", { name: /Gerar PSBT não assinado/i }));
+  fireEvent.change(screen.getByLabelText("Taxa de rede (sats)"), { target: { value: "500" } });
+  fireEvent.click(screen.getByRole("button", { name: /Gerar arquivo para assinar/i }));
 }
 
 function fillSignedPsbt(): void {
@@ -113,7 +113,7 @@ function fillSignedPsbt(): void {
 }
 
 function expectPsbtArtifactsToBeCleared(): void {
-  expect(screen.queryByText(/PSBT pronto/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Arquivo pronto para assinatura/)).not.toBeInTheDocument();
   expect(screen.queryByLabelText("PSBT assinado (Base64)")).not.toBeInTheDocument();
   expect(screen.queryByText(/raw transaction pronta para transmissão/i)).not.toBeInTheDocument();
 }
@@ -145,7 +145,7 @@ describe("VaultForm", () => {
     expect(screen.queryByRole("option", { name: /mainnet/i })).not.toBeInTheDocument();
     openCreateDialog();
     expect(screen.getByRole("dialog", { name: /Crie seu compromisso/i })).toBeVisible();
-    expect(screen.getByText(/Nunca informe seed ou chave privada/i)).toBeVisible();
+    expect(screen.getByText(/nunca pede seed ou chave privada/i)).toBeVisible();
   });
 
   it("rejects private input with an understandable error and keeps the plan panel absent", () => {
@@ -166,12 +166,13 @@ describe("VaultForm", () => {
     openCreateDialog();
     fillValidPlan();
     fireEvent.click(screen.getByRole("button", { name: "Criar plano" }));
-    expect(screen.getByText("PLANO LOCAL")).toBeVisible();
+    expect(screen.getByText("PLANO ATIVO")).toBeVisible();
     expect(screen.getByText("Depósito #0")).toBeVisible();
-    expect(screen.getByText("Endereços emitidos").nextElementSibling).toHaveTextContent("1");
-    fireEvent.click(screen.getByRole("button", { name: /Adicionar sats a este plano/ }));
+    const activePlan = screen.getByLabelText("Plano ativo Minha Casa");
+    expect(within(activePlan).getByText("Endereços emitidos").nextElementSibling).toHaveTextContent("1");
+    fireEvent.click(screen.getByRole("button", { name: /Adicionar Bitcoin/ }));
     expect(screen.getByText("Depósito #1")).toBeVisible();
-    expect(screen.getByText("Endereços emitidos").nextElementSibling).toHaveTextContent("2");
+    expect(within(activePlan).getByText("Endereços emitidos").nextElementSibling).toHaveTextContent("2");
     expect(screen.queryByText(/total depositado|saldo confirmado|bitcoin balance/i)).not.toBeInTheDocument();
   });
 
@@ -203,33 +204,33 @@ describe("VaultForm", () => {
     fillValidPlan();
     fireEvent.click(screen.getByRole("button", { name: "Criar plano" }));
     fireEvent.click(screen.getByRole("button", { name: "Preparar gasto" }));
-    expect(screen.getByRole("dialog", { name: "Preparar PSBT" })).toBeVisible();
-    expect(screen.getByLabelText(/Transação de funding em raw hex/i)).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "Preparar gasto" })).toBeVisible();
+    expect(screen.getByLabelText(/Transação que enviou Bitcoin/i)).toBeVisible();
     expect(screen.getByLabelText(/Endereço de destino/i)).toBeVisible();
     expect(screen.getByText(/Sua carteira assina fora desta aplicação/i)).toBeVisible();
-    expect(screen.getByText(/TimeSats não transmite esta transação/i)).toBeVisible();
+    expect(screen.getByText(/não transmite a transação/i)).toBeVisible();
     expect(screen.queryByLabelText(/seed|mnemonic|private key|WIF|xprv|tprv/i)).not.toBeInTheDocument();
   });
 
   it("verifies manual funding before enabling PSBT preparation", () => {
     createPlanAndOpenSpend();
-    const generate = screen.getByRole("button", { name: /Gerar PSBT não assinado/i });
+    const generate = screen.getByRole("button", { name: /Gerar arquivo para assinar/i });
     expect(generate).toBeDisabled();
 
     verifyValidFunding();
 
-    expect(screen.getByText("UTXO verificado")).toBeVisible();
+    expect(screen.getAllByText("Depósito verificado")[0]).toBeVisible();
     expect(generate).toBeEnabled();
   });
 
   it("keeps PSBT preparation blocked when manual funding is invalid", () => {
     createPlanAndOpenSpend();
-    fireEvent.change(screen.getByLabelText(/Transação de funding em raw hex/i), { target: { value: "not-hex" } });
-    fireEvent.click(screen.getByRole("button", { name: "Verificar UTXO" }));
+    fireEvent.change(screen.getByLabelText(/Transação que enviou Bitcoin/i), { target: { value: "not-hex" } });
+    fireEvent.click(screen.getByRole("button", { name: "Verificar depósito" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent(/valid raw transaction hexadecimal/i);
-    expect(screen.queryByText("UTXO verificado")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Gerar PSBT não assinado/i })).toBeDisabled();
+    expect(screen.queryByText("Depósito verificado")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Gerar arquivo para assinar/i })).toBeDisabled();
   });
 
   it("produces an unsigned PSBT after verified funding and valid spend details", () => {
@@ -238,7 +239,7 @@ describe("VaultForm", () => {
     generateUnsignedPsbt();
 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByText(/PSBT pronto/)).toBeVisible();
+    expect(screen.getByText(/Arquivo pronto para assinatura/)).toBeVisible();
     expect(screen.getByRole("button", { name: "Copiar Base64" })).toBeVisible();
   });
 
@@ -286,10 +287,10 @@ describe("VaultForm", () => {
     render(<VaultForm />);
     await screen.findByLabelText("Plano ativo Assinatura de teste");
     fireEvent.click(screen.getByRole("button", { name: "Preparar gasto" }));
-    fireEvent.change(screen.getByLabelText(/Transação de funding em raw hex/i), { target: { value: context.fundingHex } });
-    fireEvent.click(screen.getByRole("button", { name: "Verificar UTXO" }));
+    fireEvent.change(screen.getByLabelText(/Transação que enviou Bitcoin/i), { target: { value: context.fundingHex } });
+    fireEvent.click(screen.getByRole("button", { name: "Verificar depósito" }));
     fireEvent.change(screen.getByLabelText(/Endereço de destino/i), { target: { value: context.destination } });
-    fireEvent.click(screen.getByRole("button", { name: /Gerar PSBT não assinado/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Gerar arquivo para assinar/i }));
     fireEvent.change(screen.getByLabelText("PSBT assinado (Base64)"), { target: { value: context.signedBase64 } });
     fireEvent.click(screen.getByRole("button", { name: "Validar e finalizar" }));
     expect(await screen.findByLabelText("Raw transaction final pronta para transmissão")).toBeVisible();
@@ -310,9 +311,9 @@ describe("VaultForm", () => {
     fireEvent.change(screen.getByLabelText(/Endereço de destino/i), { target: { value: "not-a-destination" } });
 
     expectPsbtArtifactsToBeCleared();
-    expect(screen.getByText("UTXO verificado")).toBeVisible();
+    expect(screen.getAllByText("Depósito verificado")[0]).toBeVisible();
     fireEvent.change(screen.getByLabelText(/Endereço de destino/i), { target: { value: "bcrt1qq6hag67dl53wl99vzg42z8eyzfz2xlkvwk6f7m" } });
-    fireEvent.click(screen.getByRole("button", { name: /Gerar PSBT não assinado/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Gerar arquivo para assinar/i }));
     expect(screen.getByLabelText("PSBT assinado (Base64)")).toHaveValue("");
   });
 
@@ -321,11 +322,11 @@ describe("VaultForm", () => {
     generateUnsignedPsbt();
     fillSignedPsbt();
 
-    fireEvent.change(screen.getByLabelText("Fee (sats)"), { target: { value: "700" } });
+    fireEvent.change(screen.getByLabelText("Taxa de rede (sats)"), { target: { value: "700" } });
 
     expectPsbtArtifactsToBeCleared();
-    expect(screen.getByText("UTXO verificado")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: /Gerar PSBT não assinado/i }));
+    expect(screen.getAllByText("Depósito verificado")[0]).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /Gerar arquivo para assinar/i }));
     expect(screen.getByLabelText("PSBT assinado (Base64)")).toHaveValue("");
   });
 
@@ -334,13 +335,13 @@ describe("VaultForm", () => {
     generateUnsignedPsbt();
     fillSignedPsbt();
 
-    fireEvent.change(screen.getByLabelText(/Transação de funding em raw hex/i), { target: { value: "not-hex" } });
+    fireEvent.change(screen.getByLabelText(/Transação que enviou Bitcoin/i), { target: { value: "not-hex" } });
 
-    expect(screen.queryByText("UTXO verificado")).not.toBeInTheDocument();
+    expect(screen.queryByText("Depósito verificado")).not.toBeInTheDocument();
     expectPsbtArtifactsToBeCleared();
-    fireEvent.change(screen.getByLabelText(/Transação de funding em raw hex/i), { target: { value: rawFundingTransaction() } });
-    fireEvent.click(screen.getByRole("button", { name: "Verificar UTXO" }));
-    fireEvent.click(screen.getByRole("button", { name: /Gerar PSBT não assinado/i }));
+    fireEvent.change(screen.getByLabelText(/Transação que enviou Bitcoin/i), { target: { value: rawFundingTransaction() } });
+    fireEvent.click(screen.getByRole("button", { name: "Verificar depósito" }));
+    fireEvent.click(screen.getByRole("button", { name: /Gerar arquivo para assinar/i }));
     expect(screen.getByLabelText("PSBT assinado (Base64)")).toHaveValue("");
   });
 
@@ -349,13 +350,13 @@ describe("VaultForm", () => {
     generateUnsignedPsbt();
     fillSignedPsbt();
 
-    fireEvent.change(screen.getByLabelText("Vout"), { target: { value: "1" } });
+    fireEvent.change(screen.getByLabelText(/Índice da saída \(vout\)/i), { target: { value: "1" } });
 
-    expect(screen.queryByText("UTXO verificado")).not.toBeInTheDocument();
+    expect(screen.queryByText("Depósito verificado")).not.toBeInTheDocument();
     expectPsbtArtifactsToBeCleared();
-    fireEvent.change(screen.getByLabelText("Vout"), { target: { value: "0" } });
-    fireEvent.click(screen.getByRole("button", { name: "Verificar UTXO" }));
-    fireEvent.click(screen.getByRole("button", { name: /Gerar PSBT não assinado/i }));
+    fireEvent.change(screen.getByLabelText(/Índice da saída \(vout\)/i), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "Verificar depósito" }));
+    fireEvent.click(screen.getByRole("button", { name: /Gerar arquivo para assinar/i }));
     expect(screen.getByLabelText("PSBT assinado (Base64)")).toHaveValue("");
   });
 });
