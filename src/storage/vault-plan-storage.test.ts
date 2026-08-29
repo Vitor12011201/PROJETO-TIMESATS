@@ -1,7 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { createVaultPlan, deriveDeposit, issueNextDeposit } from "@/bitcoin/vault-plan";
+import { createVaultPlan, deriveDeposit, issueNextDeposit, vaultPlanIdentity } from "@/bitcoin/vault-plan";
 import { validTestTpub } from "@/tests/fixtures";
-import { loadVaultPlans, saveVaultPlans, upsertVaultPlan, VAULT_PLAN_STORAGE_KEY } from "./vault-plan-storage";
+import {
+  ARCHIVED_PLAN_IDENTITIES_STORAGE_KEY,
+  HIDDEN_DEPOSIT_INDEXES_STORAGE_KEY,
+  archivePlanIdentity,
+  hideDepositIndex,
+  loadArchivedPlanIdentities,
+  loadHiddenDepositIndexes,
+  loadVaultPlans,
+  removeHiddenDepositIndexesForPlan,
+  restoreHiddenDepositIndex,
+  restorePlanIdentity,
+  saveArchivedPlanIdentities,
+  saveHiddenDepositIndexes,
+  saveVaultPlans,
+  upsertVaultPlan,
+  VAULT_PLAN_STORAGE_KEY,
+} from "./vault-plan-storage";
 
 function memoryStorage() {
   const values = new Map<string, string>();
@@ -62,5 +78,71 @@ describe("public-only local VaultPlan storage", () => {
     const signet = createVaultPlan({ label: "Signet", network: "signet", unlockHeight: regtest.policy.unlockHeight, extendedPublicKey: regtest.policy.keySource.extendedPublicKey });
 
     expect(upsertVaultPlan([regtest], signet)).toEqual([regtest, signet]);
+  });
+
+  it("round-trips an archived public identity without changing the VaultPlan", () => {
+    const storage = memoryStorage();
+    const original = { ...plan(), lastIssuedIndex: 5 };
+    const identity = vaultPlanIdentity(original);
+
+    saveVaultPlans(storage, [original]);
+    saveArchivedPlanIdentities(storage, archivePlanIdentity([], identity));
+
+    expect(loadVaultPlans(storage).plans).toEqual([original]);
+    expect(loadArchivedPlanIdentities(storage)).toEqual([identity]);
+    expect(vaultPlanIdentity(loadVaultPlans(storage).plans[0])).toBe(identity);
+  });
+
+  it("restores an archived identity without changing public plan data", () => {
+    const original = { ...plan(), lastIssuedIndex: 5 };
+    const identity = vaultPlanIdentity(original);
+
+    expect(restorePlanIdentity([identity], identity)).toEqual([]);
+    expect(original.lastIssuedIndex).toBe(5);
+    expect(vaultPlanIdentity(original)).toBe(identity);
+  });
+
+  it("treats corrupted archive preferences as empty without touching stored plans", () => {
+    const storage = memoryStorage();
+    saveVaultPlans(storage, [plan()]);
+    storage.setItem(ARCHIVED_PLAN_IDENTITIES_STORAGE_KEY, "{invalid json");
+
+    expect(loadArchivedPlanIdentities(storage)).toEqual([]);
+    expect(loadVaultPlans(storage).plans).toEqual([plan()]);
+  });
+
+  it("round-trips hidden deposit indexes per public plan identity without changing the plan", () => {
+    const storage = memoryStorage();
+    const first = { ...plan(), lastIssuedIndex: 5 };
+    const second = createVaultPlan({ label: "Outro plano", network: "signet", unlockHeight: 500, extendedPublicKey: validTestTpub });
+    const firstIdentity = vaultPlanIdentity(first);
+    const secondIdentity = vaultPlanIdentity(second);
+    const hidden = hideDepositIndex(hideDepositIndex(hideDepositIndex({}, firstIdentity, 4), firstIdentity, 2), firstIdentity, 2);
+    const withSecond = hideDepositIndex(hidden, secondIdentity, 1);
+
+    saveVaultPlans(storage, [first, second]);
+    saveHiddenDepositIndexes(storage, withSecond);
+
+    expect(loadHiddenDepositIndexes(storage)).toEqual({ [firstIdentity]: [2, 4], [secondIdentity]: [1] });
+    expect(loadVaultPlans(storage).plans).toEqual([first, second]);
+    expect(vaultPlanIdentity(loadVaultPlans(storage).plans[0])).toBe(firstIdentity);
+  });
+
+  it("restores one hidden index and removes preferences only for the removed plan", () => {
+    const firstIdentity = vaultPlanIdentity(plan());
+    const secondIdentity = vaultPlanIdentity(createVaultPlan({ label: "Outro plano", network: "signet", unlockHeight: 500, extendedPublicKey: validTestTpub }));
+    const hidden = { [firstIdentity]: [2, 4], [secondIdentity]: [1] };
+
+    expect(restoreHiddenDepositIndex(hidden, firstIdentity, 2)).toEqual({ [firstIdentity]: [4], [secondIdentity]: [1] });
+    expect(removeHiddenDepositIndexesForPlan(hidden, firstIdentity)).toEqual({ [secondIdentity]: [1] });
+  });
+
+  it("fails closed for corrupt or invalid hidden deposit preferences without touching plans", () => {
+    const storage = memoryStorage();
+    saveVaultPlans(storage, [plan()]);
+    storage.setItem(HIDDEN_DEPOSIT_INDEXES_STORAGE_KEY, JSON.stringify({ invalid: [-1, 0x80000000] }));
+
+    expect(loadHiddenDepositIndexes(storage)).toEqual({});
+    expect(loadVaultPlans(storage).plans).toEqual([plan()]);
   });
 });

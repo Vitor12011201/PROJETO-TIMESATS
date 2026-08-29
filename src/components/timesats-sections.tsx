@@ -1,12 +1,15 @@
-import { useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import {
   ArrowRight,
+  Archive,
   Bitcoin,
   CalendarDays,
   ChevronRight,
   CircleCheck,
   Copy,
   Download,
+  Eye,
+  EyeOff,
   FileKey,
   FileUp,
   Hourglass,
@@ -14,11 +17,14 @@ import {
   KeyRound,
   Landmark,
   LockKeyhole,
+  MoreHorizontal,
   Plus,
   Send,
   ShieldCheck,
   Target,
   TrendingUp,
+  RotateCcw,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -91,26 +97,35 @@ function TrustFeature({ icon, title, text }: { icon: ReactNode; title: ReactNode
 interface ActivePlanCardProps {
   activePlan: VaultPlan | null;
   deposits: DerivedDeposit[];
+  hiddenDepositIndexes: number[];
   onAdd: () => void;
   onCopy: (address: string) => Promise<void>;
   onCreate: () => void;
   onExport: () => void;
   onPrepareSpend: (depositIndex: number) => void;
+  onHideDeposit: (deposit: DerivedDeposit) => void;
+  onRestoreDeposit: (depositIndex: number) => void;
 }
 
-export function ActivePlanCard({ activePlan, deposits, onAdd, onCopy, onCreate, onExport, onPrepareSpend }: ActivePlanCardProps) {
+export function ActivePlanCard({ activePlan, deposits, hiddenDepositIndexes, onAdd, onCopy, onCreate, onExport, onPrepareSpend, onHideDeposit, onRestoreDeposit }: ActivePlanCardProps) {
+  const [showHiddenDeposits, setShowHiddenDeposits] = useState(false);
+  const [openDepositOptions, setOpenDepositOptions] = useState<number | null>(null);
   if (!activePlan) {
     return <aside className={`${styles.activePlanCard} ${styles.emptyActiveCard}`} aria-label="Nenhum plano ativo"><p className={styles.eyebrow}>PLANO LOCAL</p><h2>Nenhum plano ativo</h2><p>Crie seu primeiro compromisso para emitir endereços P2WSH protegidos por um mesmo prazo.</p><button type="button" className={styles.primaryButton} onClick={onCreate}>Criar meu plano <ArrowRight aria-hidden="true" size={18} /></button><div className={styles.cardSafety}><LockKeyhole aria-hidden="true" size={17} /> Signet / Regtest apenas. Não envie Bitcoin real.</div></aside>;
   }
   const nextIndex = activePlan.lastIssuedIndex + 1;
+  const hiddenIndexes = new Set(hiddenDepositIndexes.filter((index) => index >= 0 && index <= activePlan.lastIssuedIndex));
+  const visibleDeposits = deposits.filter((deposit) => !hiddenIndexes.has(deposit.index));
+  const hiddenDeposits = deposits.filter((deposit) => hiddenIndexes.has(deposit.index));
   return (
     <aside className={styles.activePlanCard} aria-label={`Plano ativo ${activePlan.metadata.label}`}>
       <div className={styles.planTopline}><p className={styles.eyebrow}>PLANO ATIVO</p><span className={styles.localBadge}><span /> {activePlan.policy.network === "regtest" ? "Regtest local" : "Signet"}</span></div>
       <h2>{activePlan.metadata.label}</h2>
       <p className={styles.commitment}><LockKeyhole aria-hidden="true" size={20} /> Bloqueado até o bloco {activePlan.policy.unlockHeight}</p>
       <div className={styles.metrics}><Metric label="Endereços emitidos" value={String(deposits.length)} /><Metric label="Próximo índice" value={`#${nextIndex}`} /></div>
-      <div className={styles.depositTitle}>Depósitos</div>
-      <div className={styles.depositList}>{deposits.map((deposit) => <DepositRow key={deposit.index} deposit={deposit} onCopy={onCopy} onPrepare={() => onPrepareSpend(deposit.index)} />)}</div>
+      <div className={styles.depositHeading}><div className={styles.depositTitle}>Depósitos</div>{visibleDeposits.length > 0 && hiddenDeposits.length > 0 && <button type="button" className={styles.hiddenDepositsButton} onClick={() => setShowHiddenDeposits((current) => !current)} aria-expanded={showHiddenDeposits}>{showHiddenDeposits ? "Ocultar ocultos" : `Ver ocultos (${hiddenDeposits.length})`}</button>}</div>
+      {visibleDeposits.length > 0 ? <div className={styles.depositList}>{visibleDeposits.map((deposit) => <DepositRow key={deposit.index} deposit={deposit} onCopy={onCopy} onPrepare={() => onPrepareSpend(deposit.index)} onHide={() => onHideDeposit(deposit)} optionsOpen={openDepositOptions === deposit.index} onOptionsOpenChange={(open) => setOpenDepositOptions(open ? deposit.index : null)} />)}</div> : <div className={styles.hiddenDepositsEmpty}><strong>Nenhum endereço visível</strong><p>Este plano possui {deposits.length} endereços emitidos, atualmente ocultos da lista.</p>{hiddenDeposits.length > 0 && <button type="button" className={styles.subtleButton} onClick={() => setShowHiddenDeposits(true)}>Ver ocultos ({hiddenDeposits.length})</button>}</div>}
+      {showHiddenDeposits && hiddenDeposits.length > 0 && <section className={styles.hiddenDeposits} aria-labelledby="hidden-deposits-heading"><div className={styles.hiddenDepositsHeader}><div><p className={styles.eyebrow}>OCULTOS</p><h3 id="hidden-deposits-heading">Endereços ocultos</h3></div><button type="button" className={styles.subtleButton} onClick={() => setShowHiddenDeposits(false)}>Ocultar</button></div><div className={styles.hiddenDepositList}>{hiddenDeposits.map((deposit) => <HiddenDepositRow key={deposit.index} deposit={deposit} onCopy={onCopy} onRestore={() => onRestoreDeposit(deposit.index)} />)}</div></section>}
       <div className={styles.planActions}><button type="button" className={styles.addButton} onClick={onAdd}>Adicionar Bitcoin <Plus aria-hidden="true" size={19} /></button><button type="button" className={styles.recoveryButton} onClick={onExport}><Download aria-hidden="true" size={15} /> Recovery</button></div>
     </aside>
   );
@@ -120,14 +135,51 @@ function Metric({ label, value }: { label: string; value: string }) {
   return <div><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function DepositRow({ deposit, onCopy, onPrepare }: { deposit: DerivedDeposit; onCopy: (address: string) => Promise<void>; onPrepare: () => void }) {
+function DepositRow({ deposit, onCopy, onPrepare, onHide, optionsOpen, onOptionsOpenChange }: { deposit: DerivedDeposit; onCopy: (address: string) => Promise<void>; onPrepare: () => void; onHide: () => void; optionsOpen: boolean; onOptionsOpenChange: (open: boolean) => void }) {
   return <article className={styles.depositRow}>
     <span className={styles.depositIcon}><CircleCheck aria-hidden="true" size={18} /></span>
     <div className={styles.depositInfo}><strong>Depósito #{deposit.index}</strong><code title={deposit.address}>{shortenedAddress(deposit.address)}</code></div>
     <button className={styles.copyButton} type="button" onClick={() => onCopy(deposit.address)} aria-label={`Copiar endereço do depósito ${deposit.index}`}><Copy aria-hidden="true" size={15} /></button>
     <div className={styles.depositState}>#{deposit.index}</div>
     <button className={styles.prepareButton} type="button" onClick={onPrepare}>Preparar gasto</button>
+    <DepositOptionsMenu deposit={deposit} open={optionsOpen} onOpenChange={onOptionsOpenChange} onHide={onHide} />
   </article>;
+}
+
+function DepositOptionsMenu({ deposit, open, onOpenChange, onHide }: { deposit: DerivedDeposit; open: boolean; onOpenChange: (open: boolean) => void; onHide: () => void }) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    function closeWhenClickingOutside(event: PointerEvent): void {
+      if (!menuRef.current?.contains(event.target as Node)) onOpenChange(false);
+    }
+    document.addEventListener("pointerdown", closeWhenClickingOutside);
+    return () => document.removeEventListener("pointerdown", closeWhenClickingOutside);
+  }, [open, onOpenChange]);
+  return <div ref={menuRef} className={styles.depositOptions} onKeyDown={(event) => { if (event.key === "Escape") onOpenChange(false); }}><button type="button" className={styles.depositOptionsButton} aria-label={`Opções do depósito ${deposit.index}`} aria-haspopup="menu" aria-expanded={open} onClick={() => onOpenChange(!open)}><MoreHorizontal aria-hidden="true" size={17} /></button>{open && <div className={styles.depositOptionsMenu} role="menu" aria-label={`Ações para depósito ${deposit.index}`}><button type="button" role="menuitem" onClick={() => { onHide(); onOpenChange(false); }}><EyeOff aria-hidden="true" size={15} /> Ocultar da lista</button></div>}</div>;
+}
+
+function HiddenDepositRow({ deposit, onCopy, onRestore }: { deposit: DerivedDeposit; onCopy: (address: string) => Promise<void>; onRestore: () => void }) {
+  return <article className={styles.hiddenDepositRow}><div className={styles.depositInfo}><strong>Depósito #{deposit.index}</strong><code title={deposit.address}>{shortenedAddress(deposit.address)}</code></div><div className={styles.hiddenDepositActions}><button className={styles.copyButton} type="button" onClick={() => onCopy(deposit.address)} aria-label={`Copiar endereço do depósito ${deposit.index}`}><Copy aria-hidden="true" size={15} /></button><button type="button" className={styles.subtleButton} onClick={onRestore}><Eye aria-hidden="true" size={15} /> Mostrar novamente</button></div></article>;
+}
+
+export function NewDepositDialog({ plan, onClose, onConfirm }: { plan: VaultPlan; onClose: () => void; onConfirm: () => void }) {
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent): void { if (event.key === "Escape") onClose(); }
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+  const nextIndex = plan.lastIssuedIndex + 1;
+  return <div className={styles.dialogBackdrop} role="presentation"><section className={`${styles.dialog} ${styles.lifecycleDialog}`} role="dialog" aria-modal="true" aria-labelledby="new-deposit-title"><button type="button" className={styles.closeButton} onClick={onClose} aria-label="Fechar geração de endereço"><X aria-hidden="true" size={19} /></button><p className={styles.eyebrow}>RECEBER BITCOIN</p><h2 id="new-deposit-title">Gerar novo endereço?</h2><p>A TimeSats vai gerar um novo endereço protegido pelas mesmas regras deste plano.</p><dl className={styles.depositDialogDetails}><div><dt>Plano</dt><dd>{plan.metadata.label}</dd></div><div><dt>Próximo depósito</dt><dd>#{nextIndex}</dd></div><div><dt>Rede</dt><dd>{plan.policy.network === "regtest" ? "Regtest local" : "Signet"}</dd></div><div><dt>Desbloqueio</dt><dd>Bloco {plan.policy.unlockHeight}</dd></div></dl><p className={styles.dialogNotice}>Depois que um endereço é gerado, seu índice não será reutilizado.</p><div className={styles.lifecycleActions}><button type="button" className={styles.subtleButton} onClick={onClose}>Cancelar</button><button type="button" className={styles.primaryButton} onClick={onConfirm}>Gerar endereço #{nextIndex} <Plus aria-hidden="true" size={16} /></button></div></section></div>;
+}
+
+export function HideDepositDialog({ plan, deposit, onClose, onConfirm }: { plan: VaultPlan; deposit: DerivedDeposit; onClose: () => void; onConfirm: () => void }) {
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent): void { if (event.key === "Escape") onClose(); }
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+  return <div className={styles.dialogBackdrop} role="presentation"><section className={`${styles.dialog} ${styles.lifecycleDialog}`} role="dialog" aria-modal="true" aria-labelledby="hide-deposit-title"><button type="button" className={styles.closeButton} onClick={onClose} aria-label="Fechar confirmação de ocultação"><X aria-hidden="true" size={19} /></button><p className={styles.eyebrow}>PREFERÊNCIA LOCAL</p><h2 id="hide-deposit-title">Ocultar este endereço?</h2><p className={styles.lifecyclePlanName}>Depósito #{deposit.index} · {plan.metadata.label}</p><code className={styles.hiddenAddress} title={deposit.address}>{shortenedAddress(deposit.address)}</code><p>O endereço deixará de aparecer na lista principal, mas continuará pertencendo a este plano.</p><p className={styles.dialogNotice}>Ele não será apagado e seu índice nunca será reutilizado.</p><div className={styles.lifecycleActions}><button type="button" className={styles.subtleButton} onClick={onClose}>Cancelar</button><button type="button" className={styles.primaryButton} onClick={onConfirm}><EyeOff aria-hidden="true" size={16} /> Ocultar endereço</button></div></section></div>;
 }
 
 export function HowItWorks() {
@@ -140,19 +192,72 @@ export function HowItWorks() {
   return <section className={styles.howItWorks} id="como-funciona" aria-labelledby="how-heading"><div className={styles.howHeading}><p className={styles.eyebrow}>COMO FUNCIONA</p><h2 id="how-heading">Um plano. Um prazo. Suas chaves.</h2></div><div className={styles.howSteps}>{steps.map(([icon, title, text]) => <article key={title as string}><span>{icon}</span><div><h3>{title}</h3><p>{text}</p></div></article>)}</div></section>;
 }
 
-interface PlansGridProps { activePlan: VaultPlan | null; plans: VaultPlan[]; onCreate: () => void; onSelect: (plan: VaultPlan) => void; onImport: () => void; }
+interface PlansGridProps {
+  activePlan: VaultPlan | null;
+  plans: VaultPlan[];
+  archivedPlanIdentities: string[];
+  onCreate: () => void;
+  onSelect: (plan: VaultPlan) => void;
+  onImport: () => void;
+  onExport: (plan: VaultPlan) => void;
+  onArchive: (plan: VaultPlan) => void;
+  onRestore: (plan: VaultPlan) => void;
+  onRemove: (plan: VaultPlan) => void;
+}
 
-export function PlansGrid({ activePlan, plans, onCreate, onSelect, onImport }: PlansGridProps) {
+export function PlansGrid({ activePlan, plans, archivedPlanIdentities, onCreate, onSelect, onImport, onExport, onArchive, onRestore, onRemove }: PlansGridProps) {
+  const [showArchived, setShowArchived] = useState(false);
+  const [openPlanOptions, setOpenPlanOptions] = useState<string | null>(null);
+  const archived = plans.filter((plan) => archivedPlanIdentities.includes(vaultPlanIdentity(plan)));
+  const visiblePlans = plans.filter((plan) => !archivedPlanIdentities.includes(vaultPlanIdentity(plan)));
   return <section className={styles.plansSection} aria-labelledby="plans-heading">
-    <div className={styles.sectionHeader}><div><h2 id="plans-heading">Meus planos</h2><p>Visão geral dos seus compromissos de longo prazo.</p></div><div className={styles.sectionActions}><button type="button" className={styles.subtleButton} onClick={onImport}><Upload aria-hidden="true" size={15} /> Importar</button><button type="button" className={styles.outlineButton} onClick={onCreate}><Plus aria-hidden="true" size={17} /> Novo plano</button></div></div>
-    {plans.length === 0 ? <div className={styles.emptyPlans}><p>Nenhum plano criado ainda.</p><span>Crie seu primeiro compromisso de longo prazo.</span><button type="button" className={styles.primaryButton} onClick={onCreate}>Criar meu plano <ChevronRight aria-hidden="true" size={18} /></button></div> : <div className={styles.plansGrid}>{plans.map((plan, index) => <PlanCard key={vaultPlanIdentity(plan)} plan={plan} active={activePlan !== null && vaultPlanIdentity(activePlan) === vaultPlanIdentity(plan)} onSelect={() => onSelect(plan)} index={index} />)}<button type="button" className={styles.newPlanCard} onClick={onCreate}><span><Plus aria-hidden="true" size={29} /></span><div><strong>Criar novo plano</strong><p>Comece um novo compromisso de longo prazo.</p></div></button></div>}
+    <div className={styles.sectionHeader}><div><h2 id="plans-heading">Meus planos</h2><p>Visão geral dos seus compromissos de longo prazo.</p></div><div className={styles.sectionActions}>{archived.length > 0 && <button type="button" className={styles.subtleButton} onClick={() => setShowArchived((current) => !current)} aria-expanded={showArchived}>{showArchived ? "Ocultar arquivados" : `Arquivados (${archived.length})`}</button>}<button type="button" className={styles.subtleButton} onClick={onImport}><Upload aria-hidden="true" size={15} /> Importar</button><button type="button" className={styles.outlineButton} onClick={onCreate}><Plus aria-hidden="true" size={17} /> Novo plano</button></div></div>
+    {visiblePlans.length === 0 ? <div className={styles.emptyPlans}><p>{plans.length === 0 ? "Nenhum plano criado ainda." : "Nenhum plano ativo."}</p><span>{plans.length === 0 ? "Crie seu primeiro compromisso de longo prazo." : "Seus planos continuam salvos neste dispositivo, em Arquivados."}</span><div className={styles.emptyPlanActions}><button type="button" className={styles.primaryButton} onClick={onCreate}>Criar meu plano <ChevronRight aria-hidden="true" size={18} /></button>{archived.length > 0 && <button type="button" className={styles.subtleButton} onClick={() => setShowArchived(true)}>Ver arquivados</button>}</div></div> : <div className={styles.plansGrid}>{visiblePlans.map((plan, index) => <PlanCard key={vaultPlanIdentity(plan)} plan={plan} active={activePlan !== null && vaultPlanIdentity(activePlan) === vaultPlanIdentity(plan)} onSelect={() => onSelect(plan)} onExport={() => onExport(plan)} onArchive={() => onArchive(plan)} onRemove={() => onRemove(plan)} optionsOpen={openPlanOptions === vaultPlanIdentity(plan)} onOptionsOpenChange={(open) => setOpenPlanOptions(open ? vaultPlanIdentity(plan) : null)} index={index} />)}<button type="button" className={styles.newPlanCard} onClick={onCreate}><span><Plus aria-hidden="true" size={29} /></span><div><strong>Criar novo plano</strong><p>Comece um novo compromisso de longo prazo.</p></div></button></div>}
+    {showArchived && archived.length > 0 && <section className={styles.archivedPlans} aria-labelledby="archived-plans-heading"><div className={styles.archivedHeading}><div><p className={styles.eyebrow}>ARQUIVADOS</p><h3 id="archived-plans-heading">Planos arquivados</h3></div><button type="button" className={styles.subtleButton} onClick={() => setShowArchived(false)}>Ocultar</button></div><div className={styles.archivedGrid}>{archived.map((plan, index) => <PlanCard key={vaultPlanIdentity(plan)} plan={plan} active={false} onExport={() => onExport(plan)} onRestore={() => onRestore(plan)} onRemove={() => onRemove(plan)} optionsOpen={openPlanOptions === vaultPlanIdentity(plan)} onOptionsOpenChange={(open) => setOpenPlanOptions(open ? vaultPlanIdentity(plan) : null)} index={index} archived />)}</div></section>}
   </section>;
 }
 
-function PlanCard({ plan, active, onSelect, index }: { plan: VaultPlan; active: boolean; onSelect: () => void; index: number }) {
+interface PlanCardProps {
+  plan: VaultPlan;
+  active: boolean;
+  index: number;
+  archived?: boolean;
+  onSelect?: () => void;
+  onExport: () => void;
+  onArchive?: () => void;
+  onRestore?: () => void;
+  onRemove: () => void;
+  optionsOpen: boolean;
+  onOptionsOpenChange: (open: boolean) => void;
+}
+
+function PlanCard({ plan, active, onSelect, onExport, onArchive, onRestore, onRemove, optionsOpen, onOptionsOpenChange, index, archived = false }: PlanCardProps) {
   const Icon = index % 2 === 0 ? House : Landmark;
-  return <button type="button" className={`${styles.planCard} ${active ? styles.planCardActive : ""}`} onClick={onSelect} aria-pressed={active}>
-    <div className={styles.planCardTop}><span className={styles.planIcon}><Icon aria-hidden="true" size={19} /></span><span className={styles.planNetwork}>{plan.policy.network === "regtest" ? "Regtest local" : "Signet"}</span></div><div className={styles.planCardBody}><strong>{plan.metadata.label}</strong><span><LockKeyhole aria-hidden="true" size={13} /> Desbloqueio · bloco {plan.policy.unlockHeight}</span></div><div className={styles.planCardMetrics}><span><small>Endereços emitidos</small><strong>{plan.lastIssuedIndex + 1}</strong></span><span><small>Próximo índice</small><strong>#{plan.lastIssuedIndex + 1}</strong></span></div><div className={styles.planLock}><LockKeyhole aria-hidden="true" size={14} /> Bloqueado <ChevronRight aria-hidden="true" size={16} /></div></button>;
+  const content = <><div className={styles.planCardTop}><span className={styles.planIcon}><Icon aria-hidden="true" size={19} /></span><span className={styles.planNetwork}>{plan.policy.network === "regtest" ? "Regtest local" : "Signet"}</span></div><div className={styles.planCardBody}><strong>{plan.metadata.label}</strong><span><LockKeyhole aria-hidden="true" size={13} /> Desbloqueio · bloco {plan.policy.unlockHeight}</span></div><div className={styles.planCardMetrics}><span><small>Endereços emitidos</small><strong>{plan.lastIssuedIndex + 1}</strong></span><span><small>Próximo índice</small><strong>#{plan.lastIssuedIndex + 1}</strong></span></div><div className={styles.planLock}><LockKeyhole aria-hidden="true" size={14} /> Bloqueado {!archived && <ChevronRight aria-hidden="true" size={16} />}</div></>;
+  return <article className={`${styles.planCard} ${active ? styles.planCardActive : ""} ${archived ? styles.archivedPlanCard : ""}`}>{onSelect ? <button type="button" className={styles.planCardSelect} onClick={onSelect} aria-pressed={active}>{content}</button> : <div className={styles.planCardStatic}>{content}</div>}<PlanOptionsMenu plan={plan} archived={archived} open={optionsOpen} onOpenChange={onOptionsOpenChange} onExport={onExport} onArchive={onArchive} onRestore={onRestore} onRemove={onRemove} /></article>;
+}
+
+function PlanOptionsMenu({ plan, archived, open, onOpenChange, onExport, onArchive, onRestore, onRemove }: { plan: VaultPlan; archived: boolean; open: boolean; onOpenChange: (open: boolean) => void; onExport: () => void; onArchive?: () => void; onRestore?: () => void; onRemove: () => void }) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    function closeWhenClickingOutside(event: PointerEvent): void {
+      if (!menuRef.current?.contains(event.target as Node)) onOpenChange(false);
+    }
+    document.addEventListener("pointerdown", closeWhenClickingOutside);
+    return () => document.removeEventListener("pointerdown", closeWhenClickingOutside);
+  }, [open, onOpenChange]);
+  function select(action: () => void): void { action(); onOpenChange(false); }
+  return <div ref={menuRef} className={styles.planOptions} onKeyDown={(event) => { if (event.key === "Escape") onOpenChange(false); }}><button type="button" className={styles.planOptionsButton} aria-label={`Opções do plano ${plan.metadata.label}`} aria-haspopup="menu" aria-expanded={open} onClick={() => onOpenChange(!open)}><MoreHorizontal aria-hidden="true" size={18} /></button>{open && <div className={styles.planOptionsMenu} role="menu" aria-label={`Ações para ${plan.metadata.label}`}><button type="button" role="menuitem" onClick={() => select(onExport)}><Download aria-hidden="true" size={15} /> Exportar recovery</button>{archived ? <button type="button" role="menuitem" onClick={() => onRestore && select(onRestore)}><RotateCcw aria-hidden="true" size={15} /> Restaurar</button> : <button type="button" role="menuitem" onClick={() => onArchive && select(onArchive)}><Archive aria-hidden="true" size={15} /> Arquivar</button>}<span role="separator" /><button type="button" role="menuitem" className={styles.removeMenuItem} onClick={() => select(onRemove)}><Trash2 aria-hidden="true" size={15} /> Remover deste dispositivo</button></div>}</div>;
+}
+
+export function ArchivePlanDialog({ plan, onClose, onConfirm }: { plan: VaultPlan; onClose: () => void; onConfirm: () => void }) {
+  return <div className={styles.dialogBackdrop} role="presentation"><section className={`${styles.dialog} ${styles.lifecycleDialog}`} role="dialog" aria-modal="true" aria-labelledby="archive-plan-title"><button type="button" className={styles.closeButton} onClick={onClose} aria-label="Fechar confirmação de arquivamento"><X aria-hidden="true" size={19} /></button><p className={styles.eyebrow}>PREFERÊNCIA LOCAL</p><h2 id="archive-plan-title">Arquivar plano?</h2><p className={styles.lifecyclePlanName}>{plan.metadata.label}</p><p>O plano deixará de aparecer em “Meus planos”, mas continuará salvo neste dispositivo.</p><div className={styles.lifecycleActions}><button type="button" className={styles.subtleButton} onClick={onClose}>Cancelar</button><button type="button" className={styles.primaryButton} onClick={onConfirm}><Archive aria-hidden="true" size={16} /> Arquivar</button></div></section></div>;
+}
+
+export function RemovePlanDialog({ plan, onClose, onExport, onConfirm }: { plan: VaultPlan; onClose: () => void; onExport: () => void; onConfirm: () => void }) {
+  const [acknowledged, setAcknowledged] = useState(false);
+  return <div className={styles.dialogBackdrop} role="presentation"><section className={`${styles.dialog} ${styles.lifecycleDialog} ${styles.removeDialog}`} role="dialog" aria-modal="true" aria-labelledby="remove-plan-title"><button type="button" className={styles.closeButton} onClick={onClose} aria-label="Fechar confirmação de remoção"><X aria-hidden="true" size={19} /></button><p className={styles.eyebrow}>DADOS LOCAIS</p><h2 id="remove-plan-title">Remover este plano deste dispositivo?</h2><p className={styles.lifecyclePlanName}>{plan.metadata.label}</p><p>Isso remove apenas os dados públicos locais do TimeSats.</p><p className={styles.removeWarning}>Isso NÃO move, desbloqueia ou gasta Bitcoin.</p><p>Se você precisar deste plano novamente, será necessário restaurá-lo usando um recovery.</p><div className={styles.recoveryBeforeRemoval}><div><strong>Guarde um recovery antes de remover</strong><span>Ele permite reconstruir este plano e seus endereços emitidos.</span></div><button type="button" className={styles.subtleButton} onClick={onExport}><Download aria-hidden="true" size={15} /> Baixar recovery</button></div><label className={styles.removeAcknowledgement}><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} /> Entendo que precisarei do recovery para restaurar este plano depois.</label><div className={styles.lifecycleActions}><button type="button" className={styles.subtleButton} onClick={onClose}>Cancelar</button><button type="button" className={styles.dangerButton} onClick={onConfirm} disabled={!acknowledged}><Trash2 aria-hidden="true" size={16} /> Remover deste dispositivo</button></div></section></div>;
 }
 
 export function Footer() {

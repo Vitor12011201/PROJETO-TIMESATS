@@ -286,12 +286,15 @@
 .metrics span { display: block; color: var(--muted); font-size: 13px; }
 .metrics strong { display: block; margin-top: 6px; font-size: 29px; letter-spacing: -0.055em; }
 
+.depositHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .depositTitle { margin: 18px 0 10px; color: var(--muted-strong); font-size: 14px; font-weight: 700; }
+.hiddenDepositsButton { min-height: 29px; margin-top: 12px; padding: 0 8px; color: var(--muted-strong); font: inherit; font-size: 11px; font-weight: 700; background: transparent; border: 1px solid #344352; border-radius: 5px; cursor: pointer; }
+.hiddenDepositsButton:hover { color: var(--gold); border-color: rgba(243, 179, 35, 0.55); }
 .depositList { display: grid; gap: 8px; }
 
 .depositRow {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 42px 32px auto;
+  grid-template-columns: 28px minmax(0, 1fr) 32px 32px auto 30px;
   gap: 11px;
   align-items: center;
   min-height: 58px;
@@ -310,6 +313,26 @@
 .copyButton:hover { color: var(--gold); border-color: rgba(243, 179, 35, 0.65); background: var(--gold-wash); }
 .depositState { justify-self: end; padding: 5px 7px; color: #d4dce3; font-size: 12px; font-weight: 700; background: #121d29; border: 1px solid #334252; border-radius: 5px; }
 .prepareButton { min-height: 32px; padding: 0 11px; color: var(--gold-bright); background: transparent; border: 1px solid rgba(243, 179, 35, 0.75); white-space: nowrap; }
+.depositOptions { position: relative; z-index: 2; }
+.depositOptionsButton { display: grid; width: 30px; height: 30px; place-items: center; color: var(--muted-strong); background: rgba(11, 20, 30, 0.78); border: 1px solid #344453; border-radius: 6px; cursor: pointer; }
+.depositOptionsButton:hover { color: var(--gold); border-color: rgba(243, 179, 35, 0.56); }
+.depositOptionsButton:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+.depositOptionsMenu { position: absolute; top: 36px; right: 0; display: grid; min-width: 174px; padding: 5px; background: #101b27; border: 1px solid #3a4a59; border-radius: 7px; box-shadow: 0 16px 34px rgba(0, 0, 0, 0.42); }
+.depositOptionsMenu button { display: flex; gap: 8px; align-items: center; min-height: 34px; padding: 0 9px; color: var(--text); font: inherit; font-size: 12px; font-weight: 650; text-align: left; background: transparent; border: 0; border-radius: 5px; cursor: pointer; }
+.depositOptionsMenu button:hover,
+.depositOptionsMenu button:focus-visible { color: var(--gold-bright); background: var(--gold-wash); outline: 0; }
+.hiddenDepositsEmpty { display: grid; gap: 6px; padding: 15px; color: var(--muted-strong); background: rgba(5, 11, 18, 0.48); border: 1px dashed #3a4a59; border-radius: 8px; }
+.hiddenDepositsEmpty strong { color: var(--text); font-size: 14px; }
+.hiddenDepositsEmpty p { margin: 0; font-size: 12px; line-height: 1.45; }
+.hiddenDepositsEmpty .subtleButton { justify-self: start; margin-top: 4px; }
+.hiddenDeposits { margin-top: 12px; padding: 12px; background: rgba(9, 18, 28, 0.68); border: 1px solid #304151; border-radius: 8px; }
+.hiddenDepositsHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.hiddenDepositsHeader .eyebrow { margin: 0; }
+.hiddenDepositsHeader h3 { margin: 4px 0 0; font-size: 14px; }
+.hiddenDepositList { display: grid; gap: 7px; margin-top: 10px; }
+.hiddenDepositRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px; background: rgba(4, 10, 16, 0.48); border: 1px solid #293746; border-radius: 7px; }
+.hiddenDepositActions { display: flex; flex: none; gap: 7px; align-items: center; }
+.hiddenDepositActions .subtleButton { min-height: 32px; padding: 0 9px; font-size: 11px; }
 
 .planActions { display: grid; grid-template-columns: minmax(0, 1fr) 154px; gap: 10px; margin-top: 16px; }
 .addButton { justify-content: space-between; padding: 0 16px; color: #170f04; background: var(--gold); border: 1px solid var(--gold); }
@@ -367,12 +390,19 @@
   transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
 }
 
+.planCard { overflow: visible; }
+.planCardSelect,
+.planCardStatic { display: flex; flex: 1; flex-direction: column; min-width: 0; padding: 0; color: inherit; text-align: inherit; background: transparent; border: 0; }
+.planCardSelect { cursor: pointer; }
+.planCardSelect:focus-visible,
+.planOptionsButton:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+
 .planCard:hover,
 .newPlanCard:hover { border-color: rgba(243, 179, 35, 0.63); transform: translateY(-2px); }
 .planCardActive { border-color: var(--gold); box-shadow: inset 0 0 0 1px rgba(243, 179, 35, 0.22); }
-.planCardActive::after { position: absolute; top: 0; right: 0; width: 0; height: 0; content: ""; border-top: 36px solid var(--gold); border-left: 36px solid transparent; }
+.planCardActive::after { position: absolute; top: 0; right: 0; width: 0; height: 0; content: ""; pointer-events: none; border-top: 36px solid var(--gold); border-left: 36px solid transparent; }
 
-.planCardTop { display: flex; align-items: center; justify-content: space-between; }
+.planCardTop { display: flex; align-items: center; justify-content: space-between; padding-right: 39px; }
 .planIcon { display: grid; width: 32px; height: 32px; place-items: center; color: var(--gold); background: rgba(243, 179, 35, 0.08); border: 1px solid rgba(243, 179, 35, 0.3); border-radius: 50%; }
 .planNetwork { padding: 5px 7px; color: #bfcebd; font-size: 10px; font-weight: 650; background: rgba(83, 132, 89, 0.2); border: 1px solid rgba(109, 162, 115, 0.22); border-radius: 5px; }
 .planCardBody { margin-top: 16px; }
@@ -386,6 +416,25 @@
 .planLock { display: flex; gap: 7px; align-items: center; margin-top: auto; padding-top: 14px; color: var(--gold); font-size: 12px; font-weight: 700; }
 .planLock svg:last-child { margin-left: auto; color: #d8e0e7; }
 
+.planOptions { position: absolute; top: 13px; right: 13px; z-index: 2; }
+.planOptionsButton { display: grid; width: 30px; height: 30px; place-items: center; color: var(--muted-strong); background: rgba(11, 20, 30, 0.78); border: 1px solid #344453; border-radius: 6px; cursor: pointer; }
+.planOptionsButton:hover { color: var(--gold); border-color: rgba(243, 179, 35, 0.56); }
+.planOptionsMenu { position: absolute; top: 36px; right: 0; display: grid; min-width: 205px; padding: 5px; background: #101b27; border: 1px solid #3a4a59; border-radius: 7px; box-shadow: 0 16px 34px rgba(0, 0, 0, 0.42); }
+.planOptionsMenu button { display: flex; gap: 8px; align-items: center; min-height: 34px; padding: 0 9px; color: var(--text); font: inherit; font-size: 12px; font-weight: 650; text-align: left; background: transparent; border: 0; border-radius: 5px; cursor: pointer; }
+.planOptionsMenu button:hover,
+.planOptionsMenu button:focus-visible { color: var(--gold-bright); background: var(--gold-wash); outline: 0; }
+.planOptionsMenu [role="separator"] { height: 1px; margin: 5px 2px; background: var(--line-soft); }
+.planOptionsMenu .removeMenuItem { color: #e9abab; }
+.planOptionsMenu .removeMenuItem:hover,
+.planOptionsMenu .removeMenuItem:focus-visible { color: #ffd0d0; background: rgba(129, 48, 48, 0.24); }
+.archivedPlanCard { min-height: 180px; opacity: 0.82; }
+.archivedPlanCard .planCardBody { margin-top: 12px; }
+
+.archivedPlans { margin-top: 20px; padding: 18px; background: rgba(10, 18, 28, 0.66); border: 1px solid #2b3a48; border-radius: 9px; }
+.archivedHeading { display: flex; align-items: end; justify-content: space-between; gap: 15px; }
+.archivedHeading h3 { margin: 5px 0 0; font-size: 19px; letter-spacing: -0.04em; }
+.archivedGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+
 .newPlanCard { align-items: center; justify-content: center; gap: 13px; text-align: center; background: transparent; border-style: dashed; border-color: #4b5b69; }
 .newPlanCard > span { display: grid; width: 53px; height: 53px; place-items: center; color: var(--gold); border: 1px solid var(--gold); border-radius: 50%; }
 .newPlanCard strong { font-size: 18px; letter-spacing: -0.035em; }
@@ -395,6 +444,8 @@
 .emptyPlans p { margin: 0; font-size: 17px; font-weight: 700; }
 .emptyPlans span { color: var(--muted); font-size: 14px; }
 .emptyPlans .primaryButton { margin-top: 10px; }
+.emptyPlanActions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 10px; }
+.emptyPlanActions .primaryButton { margin-top: 0; }
 
 .footer { display: flex; align-items: center; justify-content: space-between; gap: 25px; min-height: 73px; margin-top: 12px; border-top: 1px solid var(--line-soft); }
 .footer > div { display: flex; gap: 16px; color: #8897a5; font-size: 12px; }
@@ -427,6 +478,26 @@
 .rawTransaction textarea:focus { border-color: var(--gold); outline: 0; box-shadow: 0 0 0 3px rgba(243, 179, 35, 0.12); }
 .dialogNotice { padding: 11px 12px; color: var(--gold-bright); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; background: rgba(243, 179, 35, 0.07); border: 1px solid rgba(243, 179, 35, 0.22); border-radius: 6px; }
 .dialogError { margin: 0; padding: 11px 12px; color: #ffd0d0; font-size: 13px; background: rgba(122, 39, 39, 0.3); border: 1px solid rgba(202, 86, 86, 0.55); border-radius: 6px; }
+.lifecycleDialog { width: min(520px, 100%); }
+.lifecycleDialog > p:not(.eyebrow) { margin-top: 9px; }
+.lifecyclePlanName { color: var(--text); font-size: 15px; font-weight: 700; }
+.depositDialogDetails { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 19px 0 0; padding: 13px; background: rgba(11, 23, 35, 0.78); border: 1px solid #304151; border-radius: 7px; }
+.depositDialogDetails div { display: grid; gap: 3px; }
+.depositDialogDetails dt { color: var(--muted); font-size: 11px; }
+.depositDialogDetails dd { margin: 0; color: var(--text); font-size: 13px; font-weight: 700; }
+.hiddenAddress { display: block; overflow: hidden; margin-top: 7px; color: var(--muted); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.removeWarning { color: #ffd0d0 !important; font-weight: 700; }
+.lifecycleActions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 22px; }
+.recoveryBeforeRemoval { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 20px; padding: 13px; background: rgba(11, 23, 35, 0.78); border: 1px solid #304151; border-radius: 7px; }
+.recoveryBeforeRemoval div { display: grid; gap: 4px; }
+.recoveryBeforeRemoval strong { font-size: 13px; }
+.recoveryBeforeRemoval span { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.removeAcknowledgement { display: flex !important; grid-template-columns: auto 1fr; gap: 9px !important; align-items: start; margin-top: 17px; color: var(--text) !important; font-size: 13px !important; line-height: 1.4; }
+.removeAcknowledgement input { width: 16px; min-height: 16px; margin: 1px 0 0; accent-color: var(--gold); }
+.dangerButton { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 0 15px; color: #ffd0d0; font: inherit; font-size: 14px; font-weight: 700; background: rgba(132, 48, 48, 0.5); border: 1px solid rgba(224, 126, 126, 0.62); border-radius: 7px; cursor: pointer; }
+.dangerButton:hover { background: rgba(157, 58, 58, 0.62); }
+.dangerButton:disabled,
+.dangerButton:disabled:hover { color: #8b9aa6; background: #182431; border-color: #354554; cursor: not-allowed; }
 
 .spendDialog { width: min(1080px, 100%); }
 .spendDialog > p:not(.eyebrow) { max-width: 690px; }
@@ -526,6 +597,7 @@
   .howItWorks { grid-template-columns: 1fr; gap: 19px; }
   .howSteps article { padding-left: 12px; padding-right: 12px; }
   .plansGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .archivedGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 900px) {
@@ -537,6 +609,7 @@
   .howSteps article:nth-child(3) { border-left: 0; }
   .howSteps article:nth-child(n + 3) { margin-top: 14px; padding-top: 15px; border-top: 1px solid var(--line-soft); }
   .plansGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .archivedGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 620px) {
@@ -558,9 +631,14 @@
   .trustFeature p { display: block; }
   .activePlanCard { padding: 23px 17px 17px; }
   .activePlanCard h2 { font-size: 29px; }
-  .depositRow { grid-template-columns: 27px minmax(0, 1fr) 32px; gap: 8px; padding: 9px; }
+  .depositHeading { align-items: flex-end; }
+  .depositRow { grid-template-columns: 27px minmax(0, 1fr) 32px 30px; gap: 8px; padding: 9px; }
   .depositState { display: none; }
-  .prepareButton { grid-column: 2 / -1; justify-content: center; }
+  .prepareButton { grid-column: 2 / -1; grid-row: 2; justify-content: center; }
+  .depositOptions { grid-column: 4; grid-row: 1; }
+  .hiddenDepositRow { align-items: flex-start; flex-direction: column; }
+  .hiddenDepositActions { width: 100%; }
+  .hiddenDepositActions .subtleButton { flex: 1; }
   .planActions { grid-template-columns: 1fr; }
   .howItWorks { margin-top: 22px; padding: 20px; }
   .howSteps { grid-template-columns: 1fr; }
@@ -572,6 +650,7 @@
   .sectionActions { width: 100%; }
   .sectionActions > * { flex: 1; }
   .plansGrid { grid-template-columns: 1fr; }
+  .archivedGrid { grid-template-columns: 1fr; }
   .planCard,
   .newPlanCard { min-height: 180px; }
   .footer { flex-direction: column; align-items: flex-start; padding: 21px 0; }
@@ -579,6 +658,11 @@
   .footer nav { flex-wrap: wrap; gap: 12px 18px; }
   .dialogBackdrop { align-items: start; padding: 12px; }
   .dialog { max-height: none; min-height: calc(100vh - 24px); padding: 25px 18px; }
+  .lifecycleActions,
+  .recoveryBeforeRemoval { align-items: stretch; flex-direction: column; }
+  .lifecycleActions > button,
+  .recoveryBeforeRemoval > button { width: 100%; }
+  .depositDialogDetails { grid-template-columns: 1fr; }
   .formGrid { grid-template-columns: 1fr; }
   .spendLayout { grid-template-columns: 1fr; }
   .spendAside { position: static; order: -1; }

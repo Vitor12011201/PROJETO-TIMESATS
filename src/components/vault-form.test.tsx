@@ -12,16 +12,32 @@ import {
   createVaultPlanRecoveryBundle,
   createVaultSpendIntent,
   deriveDeposit,
+  deriveIssuedDeposits,
   vaultPlanIdentity,
   verifyFundingTransaction,
 } from "@/bitcoin";
 import { validTestTpub, validTestTpubOrigin } from "@/tests/fixtures";
-import { loadVaultPlans, saveVaultPlans, VAULT_PLAN_STORAGE_KEY } from "@/storage/vault-plan-storage";
+import {
+  ARCHIVED_PLAN_IDENTITIES_STORAGE_KEY,
+  HIDDEN_DEPOSIT_INDEXES_STORAGE_KEY,
+  archivePlanIdentity,
+  loadArchivedPlanIdentities,
+  loadHiddenDepositIndexes,
+  loadVaultPlans,
+  saveArchivedPlanIdentities,
+  saveHiddenDepositIndexes,
+  saveVaultPlans,
+  VAULT_PLAN_STORAGE_KEY,
+} from "@/storage/vault-plan-storage";
 import { VaultForm } from "./vault-form";
 import { PlansGrid } from "./timesats-sections";
 import { psbtBase64ToBytes } from "./psbt-file";
 
-afterEach(() => window.localStorage.removeItem(VAULT_PLAN_STORAGE_KEY));
+afterEach(() => {
+  window.localStorage.removeItem(VAULT_PLAN_STORAGE_KEY);
+  window.localStorage.removeItem(ARCHIVED_PLAN_IDENTITIES_STORAGE_KEY);
+  window.localStorage.removeItem(HIDDEN_DEPOSIT_INDEXES_STORAGE_KEY);
+});
 
 function openCreateDialog(): void {
   fireEvent.click(screen.getAllByRole("button", { name: "Criar meu plano" })[0]);
@@ -34,6 +50,13 @@ function fillValidPlan(): void {
   fireEvent.change(screen.getByLabelText(/Fingerprint mestre público/), { target: { value: validTestTpubOrigin.masterFingerprint } });
   fireEvent.change(screen.getByLabelText(/Caminho absoluto da tpub/), { target: { value: validTestTpubOrigin.sourcePath } });
   fireEvent.change(screen.getByLabelText("Bloco de desbloqueio"), { target: { value: "840000" } });
+}
+
+function lifecyclePlan(label: string, unlockHeight: number, lastIssuedIndex = 0) {
+  return {
+    ...createVaultPlan({ label, network: "regtest", unlockHeight, extendedPublicKey: validTestTpub, policyVersion: 2, keyOrigin: validTestTpubOrigin }),
+    lastIssuedIndex,
+  };
 }
 
 function hexToUint8Array(hex: string): Uint8Array {
@@ -118,6 +141,10 @@ function expectPsbtArtifactsToBeCleared(): void {
   expect(screen.queryByText(/raw transaction pronta para transmissão/i)).not.toBeInTheDocument();
 }
 
+function confirmNewDeposit(index: number): void {
+  fireEvent.click(screen.getByRole("button", { name: `Gerar endereço #${index}` }));
+}
+
 describe("VaultForm", () => {
   it("keeps same-key same-height plans on different networks visibly distinct", () => {
     const shared = { unlockHeight: 840_000, extendedPublicKey: validTestTpub };
@@ -128,14 +155,62 @@ describe("VaultForm", () => {
 
     expect(vaultPlanIdentity(signet)).not.toBe(vaultPlanIdentity(regtest));
     expect(vaultPlanIdentity(v2)).not.toBe(vaultPlanIdentity(regtest));
-    render(<PlansGrid activePlan={regtest} plans={[signet, regtest]} onCreate={vi.fn()} onSelect={onSelect} onImport={vi.fn()} />);
+    render(<PlansGrid activePlan={regtest} plans={[signet, regtest]} archivedPlanIdentities={[]} onCreate={vi.fn()} onSelect={onSelect} onImport={vi.fn()} onExport={vi.fn()} onArchive={vi.fn()} onRestore={vi.fn()} onRemove={vi.fn()} />);
 
-    const signetCard = screen.getByRole("button", { name: /Plano Signet/i });
-    const regtestCard = screen.getByRole("button", { name: /Plano Regtest/i });
+    const signetCard = screen.getAllByRole("button", { name: /Plano Signet/i }).find((button) => button.hasAttribute("aria-pressed"));
+    const regtestCard = screen.getAllByRole("button", { name: /Plano Regtest/i }).find((button) => button.hasAttribute("aria-pressed"));
+    expect(signetCard).toBeDefined();
+    expect(regtestCard).toBeDefined();
+    if (!signetCard || !regtestCard) throw new Error("Expected both plan selection buttons.");
     expect(signetCard).toHaveAttribute("aria-pressed", "false");
     expect(regtestCard).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(signetCard);
     expect(onSelect).toHaveBeenCalledWith(signet);
+
+    fireEvent.click(screen.getByRole("button", { name: "Opções do plano Plano Signet" }));
+    const options = screen.getByRole("menu", { name: "Ações para Plano Signet" });
+    fireEvent.keyDown(options, { key: "Escape" });
+    expect(screen.queryByRole("menu", { name: "Ações para Plano Signet" })).not.toBeInTheDocument();
+  });
+
+  it("keeps only one plan options menu open without selecting a card", () => {
+    const first = lifecyclePlan("Plano A", 840_000);
+    const second = lifecyclePlan("Plano B", 840_001);
+    const onSelect = vi.fn();
+    const onExport = vi.fn();
+    render(<PlansGrid activePlan={second} plans={[first, second]} archivedPlanIdentities={[]} onCreate={vi.fn()} onSelect={onSelect} onImport={vi.fn()} onExport={onExport} onArchive={vi.fn()} onRestore={vi.fn()} onRemove={vi.fn()} />);
+
+    const firstSelection = screen.getAllByRole("button", { name: /Plano A/i }).find((button) => button.hasAttribute("aria-pressed"));
+    expect(firstSelection).toBeDefined();
+    if (!firstSelection) throw new Error("Expected the Plan A selection button.");
+    expect(firstSelection.querySelector("button")).toBeNull();
+
+    const firstOptions = screen.getByRole("button", { name: "Opções do plano Plano A" });
+    const secondOptions = screen.getByRole("button", { name: "Opções do plano Plano B" });
+    fireEvent.click(firstOptions);
+    expect(screen.getByRole("menu", { name: "Ações para Plano A" })).toBeVisible();
+    expect(onSelect).not.toHaveBeenCalled();
+
+    fireEvent.click(secondOptions);
+    expect(screen.queryByRole("menu", { name: "Ações para Plano A" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menu", { name: "Ações para Plano B" })).toBeVisible();
+    expect(onSelect).not.toHaveBeenCalled();
+
+    fireEvent.click(secondOptions);
+    expect(screen.queryByRole("menu", { name: "Ações para Plano B" })).not.toBeInTheDocument();
+
+    fireEvent.click(firstOptions);
+    fireEvent.keyDown(screen.getByRole("menu", { name: "Ações para Plano A" }), { key: "Escape" });
+    expect(screen.queryByRole("menu", { name: "Ações para Plano A" })).not.toBeInTheDocument();
+
+    fireEvent.click(firstOptions);
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("menu", { name: "Ações para Plano A" })).not.toBeInTheDocument();
+
+    fireEvent.click(firstOptions);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Exportar recovery" }));
+    expect(onExport).toHaveBeenCalledWith(first);
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
   it("shows test-network warnings, never offers mainnet, and keeps semantic navigation", () => {
@@ -171,9 +246,128 @@ describe("VaultForm", () => {
     const activePlan = screen.getByLabelText("Plano ativo Minha Casa");
     expect(within(activePlan).getByText("Endereços emitidos").nextElementSibling).toHaveTextContent("1");
     fireEvent.click(screen.getByRole("button", { name: /Adicionar Bitcoin/ }));
+    expect(screen.getByRole("dialog", { name: "Gerar novo endereço?" })).toBeVisible();
+    confirmNewDeposit(1);
     expect(screen.getByText("Depósito #1")).toBeVisible();
     expect(within(activePlan).getByText("Endereços emitidos").nextElementSibling).toHaveTextContent("2");
     expect(screen.queryByText(/total depositado|saldo confirmado|bitcoin balance/i)).not.toBeInTheDocument();
+  });
+
+  it("requires an explicit confirmation to issue exactly one new deposit", () => {
+    render(<VaultForm />);
+    openCreateDialog();
+    fillValidPlan();
+    fireEvent.click(screen.getByRole("button", { name: "Criar plano" }));
+    const active = screen.getByLabelText("Plano ativo Minha Casa");
+
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar Bitcoin" }));
+    expect(within(active).getByText("Endereços emitidos").nextElementSibling).toHaveTextContent("1");
+    expect(screen.getByRole("dialog", { name: "Gerar novo endereço?" })).toHaveTextContent("Próximo depósito#1");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(within(active).getByText("Endereços emitidos").nextElementSibling).toHaveTextContent("1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar Bitcoin" }));
+    fireEvent.click(screen.getByRole("button", { name: "Fechar geração de endereço" }));
+    expect(within(active).getByText("Endereços emitidos").nextElementSibling).toHaveTextContent("1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar Bitcoin" }));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Gerar novo endereço?" })).not.toBeInTheDocument();
+    expect(within(active).getByText("Endereços emitidos").nextElementSibling).toHaveTextContent("1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar Bitcoin" }));
+    const confirmation = screen.getByRole("button", { name: "Gerar endereço #1" });
+    fireEvent.click(confirmation);
+    fireEvent.click(confirmation);
+    expect(screen.getByText("Depósito #1")).toBeVisible();
+    expect(screen.queryByText("Depósito #2")).not.toBeInTheDocument();
+    expect(loadVaultPlans(window.localStorage).plans[0].lastIssuedIndex).toBe(1);
+  });
+
+  it("hides an emitted deposit only from the active list and restores it without changing recovery", () => {
+    const plan = lifecyclePlan("Endereços locais", 840_000, 3);
+    const identity = vaultPlanIdentity(plan);
+    const recoveryBeforeHide = createVaultPlanRecoveryBundle(plan);
+    saveVaultPlans(window.localStorage, [plan]);
+    render(<VaultForm />);
+    const active = screen.getByLabelText("Plano ativo Endereços locais");
+
+    fireEvent.click(screen.getByRole("button", { name: "Opções do depósito 3" }));
+    expect(screen.queryByRole("dialog", { name: "Preparar gasto" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Ocultar da lista" }));
+    const hideDialog = screen.getByRole("dialog", { name: "Ocultar este endereço?" });
+    fireEvent.click(within(hideDialog).getByRole("button", { name: "Cancelar" }));
+    expect(screen.getByText("Depósito #3")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Opções do depósito 3" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Ocultar da lista" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ocultar endereço" }));
+    expect(screen.queryByText("Depósito #3")).not.toBeInTheDocument();
+    expect(within(active).getByText("Endereços emitidos").nextElementSibling).toHaveTextContent("4");
+    expect(within(active).getByText("Próximo índice").nextElementSibling).toHaveTextContent("#4");
+    expect(loadHiddenDepositIndexes(window.localStorage)).toEqual({ [identity]: [3] });
+    expect(loadVaultPlans(window.localStorage).plans[0].lastIssuedIndex).toBe(3);
+    expect(vaultPlanIdentity(loadVaultPlans(window.localStorage).plans[0])).toBe(identity);
+    expect(createVaultPlanRecoveryBundle(loadVaultPlans(window.localStorage).plans[0])).toEqual(recoveryBeforeHide);
+    expect(deriveIssuedDeposits(loadVaultPlans(window.localStorage).plans[0]).map((deposit) => deposit.index)).toEqual([0, 1, 2, 3]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Ver ocultos (1)" }));
+    expect(screen.getByRole("heading", { name: "Endereços ocultos" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Mostrar novamente" }));
+    expect(screen.getByText("Depósito #3")).toBeVisible();
+    expect(loadHiddenDepositIndexes(window.localStorage)).toEqual({});
+  });
+
+  it("keeps hidden deposits emitted and advances to the next unused index", () => {
+    const plan = lifecyclePlan("Próximo índice", 840_000, 3);
+    const identity = vaultPlanIdentity(plan);
+    saveVaultPlans(window.localStorage, [plan]);
+    saveHiddenDepositIndexes(window.localStorage, { [identity]: [3] });
+    render(<VaultForm />);
+
+    expect(screen.queryByText("Depósito #3")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar Bitcoin" }));
+    expect(screen.getByRole("dialog", { name: "Gerar novo endereço?" })).toHaveTextContent("Próximo depósito#4");
+    confirmNewDeposit(4);
+
+    expect(screen.getByText("Depósito #4")).toBeVisible();
+    expect(screen.queryByText("Depósito #3")).not.toBeInTheDocument();
+    expect(loadVaultPlans(window.localStorage).plans[0].lastIssuedIndex).toBe(4);
+    expect(loadHiddenDepositIndexes(window.localStorage)).toEqual({ [identity]: [3] });
+  });
+
+  it("shows a useful empty state when every emitted deposit is hidden", () => {
+    const plan = lifecyclePlan("Tudo oculto", 840_000);
+    saveVaultPlans(window.localStorage, [plan]);
+    saveHiddenDepositIndexes(window.localStorage, { [vaultPlanIdentity(plan)]: [0] });
+    render(<VaultForm />);
+
+    expect(screen.getByText("Nenhum endereço visível")).toBeVisible();
+    expect(screen.getByText(/possui 1 endereços emitidos/i)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Ver ocultos (1)" }));
+    expect(screen.getByText("Depósito #0")).toBeVisible();
+  });
+
+  it("keeps only one deposit options menu open without preparing a spend", () => {
+    const plan = lifecyclePlan("Menus de depósito", 840_000, 1);
+    saveVaultPlans(window.localStorage, [plan]);
+    render(<VaultForm />);
+
+    const firstOptions = screen.getByRole("button", { name: "Opções do depósito 0" });
+    const secondOptions = screen.getByRole("button", { name: "Opções do depósito 1" });
+    fireEvent.click(firstOptions);
+    expect(screen.getByRole("menu", { name: "Ações para depósito 0" })).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "Preparar gasto" })).not.toBeInTheDocument();
+
+    fireEvent.click(secondOptions);
+    expect(screen.queryByRole("menu", { name: "Ações para depósito 0" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menu", { name: "Ações para depósito 1" })).toBeVisible();
+    fireEvent.keyDown(screen.getByRole("menu", { name: "Ações para depósito 1" }), { key: "Escape" });
+    expect(screen.queryByRole("menu", { name: "Ações para depósito 1" })).not.toBeInTheDocument();
+
+    fireEvent.click(firstOptions);
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("menu", { name: "Ações para depósito 0" })).not.toBeInTheDocument();
   });
 
   it("keeps the active plan and storage at the highest issued index after importing older recovery", async () => {
@@ -196,6 +390,139 @@ describe("VaultForm", () => {
     const active = await screen.findByLabelText("Plano ativo Recovery importado");
     expect(within(active).getByText("Endereços emitidos").nextElementSibling).toHaveTextContent("6");
     expect(loadVaultPlans(window.localStorage).plans).toEqual([{ ...incoming, lastIssuedIndex: 5 }]);
+  });
+
+  it("archives the active plan locally and selects the first remaining visible plan", async () => {
+    const first = lifecyclePlan("Plano principal", 840_000);
+    const second = lifecyclePlan("Plano alternativo", 840_001);
+    saveVaultPlans(window.localStorage, [first, second]);
+    render(<VaultForm />);
+    await screen.findByLabelText("Plano ativo Plano principal");
+
+    fireEvent.click(screen.getByRole("button", { name: "Opções do plano Plano principal" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Arquivar" }));
+    expect(screen.getByRole("dialog", { name: "Arquivar plano?" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Arquivar" }));
+
+    expect(await screen.findByLabelText("Plano ativo Plano alternativo")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Plano principal/i })).not.toBeInTheDocument();
+    expect(loadArchivedPlanIdentities(window.localStorage)).toEqual([vaultPlanIdentity(first)]);
+    expect(loadVaultPlans(window.localStorage).plans).toEqual([first, second]);
+  });
+
+  it("archives and restores a plan without changing its identity or issuance state", async () => {
+    const plan = lifecyclePlan("Plano para arquivar", 840_000, 5);
+    const identity = vaultPlanIdentity(plan);
+    saveVaultPlans(window.localStorage, [plan]);
+    saveHiddenDepositIndexes(window.localStorage, { [identity]: [2, 4] });
+    render(<VaultForm />);
+    await screen.findByLabelText("Plano ativo Plano para arquivar");
+
+    fireEvent.click(screen.getByRole("button", { name: "Opções do plano Plano para arquivar" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Arquivar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Arquivar" }));
+    expect(await screen.findByText("Nenhum plano ativo.")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ver arquivados" }));
+    expect(screen.getByRole("heading", { name: "Planos arquivados" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Opções do plano Plano para arquivar" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Restaurar" }));
+
+    expect(screen.getAllByRole("button", { name: /Plano para arquivar/i }).find((button) => button.hasAttribute("aria-pressed"))).toBeVisible();
+    expect(loadArchivedPlanIdentities(window.localStorage)).toEqual([]);
+    expect(loadHiddenDepositIndexes(window.localStorage)).toEqual({ [identity]: [2, 4] });
+    expect(loadVaultPlans(window.localStorage).plans).toEqual([plan]);
+    expect(vaultPlanIdentity(loadVaultPlans(window.localStorage).plans[0])).toBe(vaultPlanIdentity(plan));
+  });
+
+  it("allows local removal only after acknowledgement and clears the archive marker", async () => {
+    const plan = lifecyclePlan("Plano para remover", 840_000);
+    saveVaultPlans(window.localStorage, [plan]);
+    saveArchivedPlanIdentities(window.localStorage, archivePlanIdentity([], vaultPlanIdentity(plan)));
+    saveHiddenDepositIndexes(window.localStorage, { [vaultPlanIdentity(plan)]: [0] });
+    render(<VaultForm />);
+    await screen.findByText("Nenhum plano ativo.");
+    fireEvent.click(screen.getByRole("button", { name: "Ver arquivados" }));
+    fireEvent.click(screen.getByRole("button", { name: "Opções do plano Plano para remover" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remover deste dispositivo" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Remover este plano deste dispositivo?" });
+    expect(within(dialog).getByRole("button", { name: "Baixar recovery" })).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "Remover deste dispositivo" })).toBeDisabled();
+    fireEvent.click(within(dialog).getByLabelText(/Entendo que precisarei do recovery/i));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remover deste dispositivo" }));
+
+    expect(loadVaultPlans(window.localStorage).plans).toEqual([]);
+    expect(loadArchivedPlanIdentities(window.localStorage)).toEqual([]);
+    expect(loadHiddenDepositIndexes(window.localStorage)).toEqual({});
+    expect(screen.getByText("Nenhum plano criado ainda.")).toBeVisible();
+  });
+
+  it("removes an active normal plan locally and selects the first remaining visible plan", async () => {
+    const first = lifecyclePlan("Plano a remover", 840_000);
+    const second = lifecyclePlan("Plano que permanece", 840_001);
+    saveVaultPlans(window.localStorage, [first, second]);
+    render(<VaultForm />);
+    await screen.findByLabelText("Plano ativo Plano a remover");
+
+    fireEvent.click(screen.getByRole("button", { name: "Opções do plano Plano a remover" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remover deste dispositivo" }));
+    const dialog = screen.getByRole("dialog", { name: "Remover este plano deste dispositivo?" });
+    fireEvent.click(within(dialog).getByLabelText(/Entendo que precisarei do recovery/i));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remover deste dispositivo" }));
+
+    expect(await screen.findByLabelText("Plano ativo Plano que permanece")).toBeVisible();
+    expect(loadVaultPlans(window.localStorage).plans).toEqual([second]);
+    expect(loadArchivedPlanIdentities(window.localStorage)).toEqual([]);
+  });
+
+  it("keeps an imported recovery archived without creating a duplicate and resumes issuance after local removal", async () => {
+    const plan = lifecyclePlan("Recovery local", 840_000, 5);
+    const bundle = createVaultPlanRecoveryBundle(plan);
+    saveVaultPlans(window.localStorage, [plan]);
+    saveArchivedPlanIdentities(window.localStorage, [vaultPlanIdentity(plan)]);
+    saveHiddenDepositIndexes(window.localStorage, { [vaultPlanIdentity(plan)]: [2, 4] });
+    render(<VaultForm />);
+    await screen.findByText("Nenhum plano ativo.");
+
+    fireEvent.change(screen.getByLabelText("Importar recovery bundle"), {
+      target: { files: [{ text: vi.fn().mockResolvedValue(JSON.stringify(bundle)) }] },
+    });
+    await waitFor(() => expect(loadVaultPlans(window.localStorage).plans).toEqual([plan]));
+    expect(loadArchivedPlanIdentities(window.localStorage)).toEqual([vaultPlanIdentity(plan)]);
+    expect(loadHiddenDepositIndexes(window.localStorage)).toEqual({ [vaultPlanIdentity(plan)]: [2, 4] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Ver arquivados" }));
+    fireEvent.click(screen.getByRole("button", { name: "Opções do plano Recovery local" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remover deste dispositivo" }));
+    fireEvent.click(screen.getByLabelText(/Entendo que precisarei do recovery/i));
+    fireEvent.click(screen.getByRole("button", { name: "Remover deste dispositivo" }));
+    expect(loadVaultPlans(window.localStorage).plans).toEqual([]);
+    expect(loadHiddenDepositIndexes(window.localStorage)).toEqual({});
+
+    fireEvent.change(screen.getByLabelText("Importar recovery bundle"), {
+      target: { files: [{ text: vi.fn().mockResolvedValue(JSON.stringify(bundle)) }] },
+    });
+    const active = await screen.findByLabelText("Plano ativo Recovery local");
+    expect(within(active).getByText("Endereços emitidos").nextElementSibling).toHaveTextContent("6");
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar Bitcoin" }));
+    confirmNewDeposit(6);
+    expect(screen.getByText("Depósito #6")).toBeVisible();
+    expect(loadVaultPlans(window.localStorage).plans[0].lastIssuedIndex).toBe(6);
+    expect(loadHiddenDepositIndexes(window.localStorage)).toEqual({});
+  });
+
+  it("cancels local removal without changing the stored plan", async () => {
+    const plan = lifecyclePlan("Plano mantido", 840_000);
+    saveVaultPlans(window.localStorage, [plan]);
+    render(<VaultForm />);
+    await screen.findByLabelText("Plano ativo Plano mantido");
+    fireEvent.click(screen.getByRole("button", { name: "Opções do plano Plano mantido" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remover deste dispositivo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+
+    expect(loadVaultPlans(window.localStorage).plans).toEqual([plan]);
+    expect(screen.getByLabelText("Plano ativo Plano mantido")).toBeVisible();
   });
 
   it("offers the offline PSBT flow without ever requesting a private key", () => {

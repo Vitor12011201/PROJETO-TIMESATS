@@ -9,9 +9,36 @@ import {
   reconstructVaultPlan,
   vaultPlanIdentity,
 } from "@/bitcoin";
-import type { CreateVaultPlanInput, VaultPlan } from "@/bitcoin";
-import { loadVaultPlans, saveVaultPlans, upsertVaultPlan } from "@/storage/vault-plan-storage";
-import { ActivePlanCard, CreatePlanDialog, Footer, Header, Hero, HowItWorks, PlansGrid, PrepareSpendDialog } from "./timesats-sections";
+import type { CreateVaultPlanInput, DerivedDeposit, VaultPlan } from "@/bitcoin";
+import {
+  archivePlanIdentity,
+  hideDepositIndex,
+  loadArchivedPlanIdentities,
+  loadHiddenDepositIndexes,
+  loadVaultPlans,
+  removeHiddenDepositIndexesForPlan,
+  restoreHiddenDepositIndex,
+  restorePlanIdentity,
+  saveArchivedPlanIdentities,
+  saveHiddenDepositIndexes,
+  saveVaultPlans,
+  type HiddenDepositIndexes,
+  upsertVaultPlan,
+} from "@/storage/vault-plan-storage";
+import {
+  ActivePlanCard,
+  ArchivePlanDialog,
+  CreatePlanDialog,
+  Footer,
+  Header,
+  Hero,
+  HideDepositDialog,
+  HowItWorks,
+  NewDepositDialog,
+  PlansGrid,
+  PrepareSpendDialog,
+  RemovePlanDialog,
+} from "./timesats-sections";
 import styles from "./timesats-ui.module.css";
 
 function downloadJson(value: object, fileName: string): void {
@@ -24,26 +51,60 @@ function downloadJson(value: object, fileName: string): void {
   URL.revokeObjectURL(url);
 }
 
+function firstVisiblePlan(plans: VaultPlan[], archivedIdentities: string[]): VaultPlan | null {
+  return plans.find((plan) => !archivedIdentities.includes(vaultPlanIdentity(plan))) ?? null;
+}
+
+function reconcileActivePlan(plans: VaultPlan[], archivedIdentities: string[], current: VaultPlan | null): VaultPlan | null {
+  if (current) {
+    const identity = vaultPlanIdentity(current);
+    const matching = plans.find((plan) => vaultPlanIdentity(plan) === identity);
+    if (matching && !archivedIdentities.includes(identity)) return matching;
+  }
+  return firstVisiblePlan(plans, archivedIdentities);
+}
+
 export function TimeSatsApp() {
   const [plans, setPlans] = useState<VaultPlan[]>([]);
+  const [archivedPlanIdentities, setArchivedPlanIdentities] = useState<string[]>([]);
+  const [hiddenDepositIndexes, setHiddenDepositIndexes] = useState<HiddenDepositIndexes>({});
   const [activePlan, setActivePlan] = useState<VaultPlan | null>(null);
   const [isCreateOpen, setCreateOpen] = useState(false);
   const [spendDepositIndex, setSpendDepositIndex] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const [archiveCandidate, setArchiveCandidate] = useState<VaultPlan | null>(null);
+  const [removeCandidate, setRemoveCandidate] = useState<VaultPlan | null>(null);
+  const [newDepositCandidate, setNewDepositCandidate] = useState<VaultPlan | null>(null);
+  const [hideDepositCandidate, setHideDepositCandidate] = useState<{ plan: VaultPlan; deposit: DerivedDeposit } | null>(null);
   const importInput = useRef<HTMLInputElement>(null);
+  const issueInProgress = useRef(false);
   const deposits = useMemo(() => (activePlan ? deriveIssuedDeposits(activePlan) : []), [activePlan]);
 
   useEffect(() => {
     const loaded = loadVaultPlans(window.localStorage);
+    const archived = loadArchivedPlanIdentities(window.localStorage);
+    const hidden = loadHiddenDepositIndexes(window.localStorage);
     setPlans(loaded.plans);
-    setActivePlan(loaded.plans[0] ?? null);
+    setArchivedPlanIdentities(archived);
+    setHiddenDepositIndexes(hidden);
+    setActivePlan(firstVisiblePlan(loaded.plans, archived));
     setStorageError(loaded.error);
   }, []);
 
   function persist(nextPlans: VaultPlan[]): void {
     saveVaultPlans(window.localStorage, nextPlans);
     setPlans(nextPlans);
+  }
+
+  function persistArchived(nextArchivedIdentities: string[]): void {
+    saveArchivedPlanIdentities(window.localStorage, nextArchivedIdentities);
+    setArchivedPlanIdentities(nextArchivedIdentities);
+  }
+
+  function persistHiddenDeposits(nextHiddenDepositIndexes: HiddenDepositIndexes): void {
+    saveHiddenDepositIndexes(window.localStorage, nextHiddenDepositIndexes);
+    setHiddenDepositIndexes(nextHiddenDepositIndexes);
   }
 
   function upsertAndPersist(plan: VaultPlan): VaultPlan {
@@ -56,19 +117,29 @@ export function TimeSatsApp() {
 
   function createPlan(input: CreateVaultPlanInput): void {
     const plan = createVaultPlan(input);
-    setActivePlan(upsertAndPersist(plan));
+    const reconciled = upsertAndPersist(plan);
+    setActivePlan(archivedPlanIdentities.includes(vaultPlanIdentity(reconciled)) ? firstVisiblePlan(plans, archivedPlanIdentities) : reconciled);
     setCreateOpen(false);
     setError(null);
     setStorageError(null);
   }
 
-  function addSats(): void {
+  function requestNewDeposit(): void {
     if (!activePlan) return;
+    issueInProgress.current = false;
+    setNewDepositCandidate(activePlan);
+  }
+
+  function addSats(): void {
+    if (!newDepositCandidate || issueInProgress.current) return;
+    issueInProgress.current = true;
     try {
-      const { plan } = issueNextDeposit(activePlan);
+      const { plan } = issueNextDeposit(newDepositCandidate);
       setActivePlan(upsertAndPersist(plan));
+      setNewDepositCandidate(null);
       setError(null);
     } catch (cause) {
+      issueInProgress.current = false;
       setError(cause instanceof Error ? cause.message : "Não foi possível gerar o próximo endereço de depósito.");
     }
   }
@@ -87,7 +158,8 @@ export function TimeSatsApp() {
     if (!file) return;
     try {
       const imported = reconstructVaultPlan(JSON.parse(await file.text()));
-      setActivePlan(upsertAndPersist(imported));
+      const reconciled = upsertAndPersist(imported);
+      setActivePlan(archivedPlanIdentities.includes(vaultPlanIdentity(reconciled)) ? reconcileActivePlan(plans, archivedPlanIdentities, activePlan) : reconciled);
       setError(null);
       setStorageError(null);
     } catch (cause) {
@@ -97,9 +169,52 @@ export function TimeSatsApp() {
     }
   }
 
-  function exportBundle(): void {
-    if (!activePlan) return;
-    downloadJson(createVaultPlanRecoveryBundle(activePlan), `timesats-plan-${activePlan.policy.network}-${activePlan.policy.unlockHeight}.json`);
+  function exportBundle(plan: VaultPlan): void {
+    downloadJson(createVaultPlanRecoveryBundle(plan), `timesats-plan-${plan.policy.network}-${plan.policy.unlockHeight}.json`);
+  }
+
+  function archivePlan(plan: VaultPlan): void {
+    const identity = vaultPlanIdentity(plan);
+    const nextArchived = archivePlanIdentity(archivedPlanIdentities, identity);
+    persistArchived(nextArchived);
+    setActivePlan((current) => reconcileActivePlan(plans, nextArchived, current));
+    if (activePlan && vaultPlanIdentity(activePlan) === identity) setSpendDepositIndex(null);
+    setArchiveCandidate(null);
+  }
+
+  function restorePlan(plan: VaultPlan): void {
+    const nextArchived = restorePlanIdentity(archivedPlanIdentities, vaultPlanIdentity(plan));
+    persistArchived(nextArchived);
+    setActivePlan((current) => reconcileActivePlan(plans, nextArchived, current));
+  }
+
+  function hideDeposit(plan: VaultPlan, deposit: DerivedDeposit): void {
+    const nextHidden = hideDepositIndex(hiddenDepositIndexes, vaultPlanIdentity(plan), deposit.index);
+    persistHiddenDeposits(nextHidden);
+    setHideDepositCandidate(null);
+  }
+
+  function restoreDeposit(plan: VaultPlan, depositIndex: number): void {
+    const nextHidden = restoreHiddenDepositIndex(hiddenDepositIndexes, vaultPlanIdentity(plan), depositIndex);
+    persistHiddenDeposits(nextHidden);
+  }
+
+  function removePlan(plan: VaultPlan): void {
+    const identity = vaultPlanIdentity(plan);
+    const nextPlans = plans.filter((candidate) => vaultPlanIdentity(candidate) !== identity);
+    const nextArchived = restorePlanIdentity(archivedPlanIdentities, identity);
+    const nextHidden = removeHiddenDepositIndexesForPlan(hiddenDepositIndexes, identity);
+    saveVaultPlans(window.localStorage, nextPlans);
+    saveArchivedPlanIdentities(window.localStorage, nextArchived);
+    saveHiddenDepositIndexes(window.localStorage, nextHidden);
+    setPlans(nextPlans);
+    setArchivedPlanIdentities(nextArchived);
+    setHiddenDepositIndexes(nextHidden);
+    setActivePlan((current) => reconcileActivePlan(nextPlans, nextArchived, current));
+    if (activePlan && vaultPlanIdentity(activePlan) === identity) setSpendDepositIndex(null);
+    if (newDepositCandidate && vaultPlanIdentity(newDepositCandidate) === identity) setNewDepositCandidate(null);
+    if (hideDepositCandidate && vaultPlanIdentity(hideDepositCandidate.plan) === identity) setHideDepositCandidate(null);
+    setRemoveCandidate(null);
   }
 
   return (
@@ -108,10 +223,10 @@ export function TimeSatsApp() {
       <main className={styles.main}>
         <section className={styles.hero} id="produto">
           <Hero onCreate={() => setCreateOpen(true)} />
-          <ActivePlanCard activePlan={activePlan} deposits={deposits} onAdd={addSats} onCopy={copyAddress} onCreate={() => setCreateOpen(true)} onExport={exportBundle} onPrepareSpend={setSpendDepositIndex} />
+          <ActivePlanCard activePlan={activePlan} deposits={deposits} hiddenDepositIndexes={activePlan ? hiddenDepositIndexes[vaultPlanIdentity(activePlan)] ?? [] : []} onAdd={requestNewDeposit} onCopy={copyAddress} onCreate={() => setCreateOpen(true)} onExport={() => activePlan && exportBundle(activePlan)} onPrepareSpend={setSpendDepositIndex} onHideDeposit={(deposit) => activePlan && setHideDepositCandidate({ plan: activePlan, deposit })} onRestoreDeposit={(depositIndex) => activePlan && restoreDeposit(activePlan, depositIndex)} />
         </section>
         <HowItWorks />
-        <PlansGrid activePlan={activePlan} plans={plans} onCreate={() => setCreateOpen(true)} onSelect={(plan) => { setActivePlan(plan); setError(null); }} onImport={() => importInput.current?.click()} />
+        <PlansGrid activePlan={activePlan} plans={plans} archivedPlanIdentities={archivedPlanIdentities} onCreate={() => setCreateOpen(true)} onSelect={(plan) => { setActivePlan(plan); setError(null); }} onImport={() => importInput.current?.click()} onExport={exportBundle} onArchive={setArchiveCandidate} onRestore={restorePlan} onRemove={setRemoveCandidate} />
         {storageError && <p className={styles.alert} role="alert">{storageError}</p>}
         {error && <p className={styles.alert} role="alert">{error}</p>}
       </main>
@@ -119,6 +234,10 @@ export function TimeSatsApp() {
       <input ref={importInput} className={styles.visuallyHidden} type="file" accept="application/json,.json" onChange={importBundle} aria-label="Importar recovery bundle" />
       {isCreateOpen && <CreatePlanDialog onClose={() => setCreateOpen(false)} onCreate={createPlan} />}
       {activePlan && spendDepositIndex !== null && <PrepareSpendDialog plan={activePlan} depositIndex={spendDepositIndex} onClose={() => setSpendDepositIndex(null)} />}
+      {newDepositCandidate && <NewDepositDialog plan={newDepositCandidate} onClose={() => setNewDepositCandidate(null)} onConfirm={addSats} />}
+      {hideDepositCandidate && <HideDepositDialog plan={hideDepositCandidate.plan} deposit={hideDepositCandidate.deposit} onClose={() => setHideDepositCandidate(null)} onConfirm={() => hideDeposit(hideDepositCandidate.plan, hideDepositCandidate.deposit)} />}
+      {archiveCandidate && <ArchivePlanDialog plan={archiveCandidate} onClose={() => setArchiveCandidate(null)} onConfirm={() => archivePlan(archiveCandidate)} />}
+      {removeCandidate && <RemovePlanDialog plan={removeCandidate} onClose={() => setRemoveCandidate(null)} onExport={() => exportBundle(removeCandidate)} onConfirm={() => removePlan(removeCandidate)} />}
     </div>
   );
 }
