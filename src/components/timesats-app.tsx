@@ -26,6 +26,11 @@ import {
   upsertVaultPlan,
 } from "@/storage/vault-plan-storage";
 import {
+  isXpublessV2DevelopmentGateEnabled,
+  startXpublessV2DevelopmentRuntime,
+  type XpublessV2RuntimeStartupResult,
+} from "@/storage/xpubless-v2-runtime";
+import {
   ActivePlanCard,
   ArchivePlanDialog,
   CreatePlanDialog,
@@ -64,7 +69,64 @@ function reconcileActivePlan(plans: VaultPlan[], archivedIdentities: string[], c
   return firstVisiblePlan(plans, archivedIdentities);
 }
 
-export function TimeSatsApp() {
+function XpublessV2DevRuntimeShell() {
+  const [runtimeResult, setRuntimeResult] = useState<XpublessV2RuntimeStartupResult | null>(null);
+  const startupPromise = useRef<Promise<XpublessV2RuntimeStartupResult> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    // React development effects may re-run. Reuse one startup promise while
+    // each effect subscribes safely, so the second StrictMode pass can still
+    // receive its result after the first pass has been cleaned up.
+    startupPromise.current ??= startXpublessV2DevelopmentRuntime();
+    void startupPromise.current
+      .then((result) => {
+        if (!cancelled) setRuntimeResult(result);
+      })
+      .catch(() => {
+        if (!cancelled) setRuntimeResult({ status: "FAILED_RECOVERABLE" });
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const statusText = runtimeResult === null
+    ? "Inicializando runtime experimental."
+    : runtimeResult.status === "XPUBLESS_READY"
+      ? "Autoridade xpubless carregada. As mutações permanecem desabilitadas nesta fase."
+      : runtimeResult.status === "EMPTY_READY"
+        ? "Nenhum estado local xpubless existe. A criação permanece desabilitada nesta fase."
+        : runtimeResult.status === "MIGRATION_BLOCKED"
+          ? `Migração bloqueada: ${runtimeResult.reason}.`
+          : runtimeResult.status === "AUTHORITY_BLOCKED"
+            ? `Estado local bloqueado: ${runtimeResult.reason}.`
+            : runtimeResult.status === "RUNTIME_UNAVAILABLE"
+              ? `Runtime indisponível: ${runtimeResult.reason}.`
+              : runtimeResult.status === "BLOCKED_CONCURRENT_WRITER"
+                ? "Outro escritor xpubless está ativo. Tente novamente depois."
+                : runtimeResult.status === "FAILED_BROWSER_COORDINATION"
+                  ? "A coordenação exclusiva do navegador falhou."
+                  : runtimeResult.status === "FAILED_RECOVERABLE"
+                    ? "O armazenamento local não pôde ser lido com segurança."
+                    : "Runtime experimental desabilitado.";
+
+  return (
+    <div className={styles.application}>
+      <main className={styles.main}>
+        <section className={styles.hero} aria-labelledby="xpubless-dev-runtime-heading">
+          <div className={styles.heroCopy}>
+            <p className={styles.networkNotice}><span aria-hidden="true" /> Desenvolvimento experimental</p>
+            <h1 id="xpubless-dev-runtime-heading">Xpubless V2</h1>
+            <p className={styles.heroDescription}>{statusText}</p>
+            <p className={styles.cardSafety}>Signet / Regtest apenas. Este estado não infere saldo, UTXOs ou segurança de fundos.</p>
+          </div>
+        </section>
+      </main>
+      <Footer />
+    </div>
+  );
+}
+
+function LegacyTimeSatsApp() {
   const [plans, setPlans] = useState<VaultPlan[]>([]);
   const [archivedPlanIdentities, setArchivedPlanIdentities] = useState<string[]>([]);
   const [hiddenDepositIndexes, setHiddenDepositIndexes] = useState<HiddenDepositIndexes>({});
@@ -240,4 +302,9 @@ export function TimeSatsApp() {
       {removeCandidate && <RemovePlanDialog plan={removeCandidate} onClose={() => setRemoveCandidate(null)} onExport={() => exportBundle(removeCandidate)} onConfirm={() => removePlan(removeCandidate)} />}
     </div>
   );
+}
+
+/** Default-off development boundary; the legacy application remains untouched otherwise. */
+export function TimeSatsApp() {
+  return isXpublessV2DevelopmentGateEnabled() ? <XpublessV2DevRuntimeShell /> : <LegacyTimeSatsApp />;
 }

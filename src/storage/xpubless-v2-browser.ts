@@ -69,6 +69,7 @@ export interface XpublessV2BrowserCommittedIssuanceDependencies {
 }
 
 export type XpublessV2BrowserCoordinationResult =
+  | { status: "BLOCKED_CONCURRENT_WRITER" }
   | { status: "UNSUPPORTED_EXCLUSIVE_WRITER" }
   | { status: "FAILED_BROWSER_COORDINATION" };
 
