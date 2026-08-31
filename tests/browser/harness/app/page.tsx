@@ -33,6 +33,7 @@ interface P3D3HarnessApi {
   releasePausedLock(): void;
   migration(ids: MigrationIds): Promise<unknown>;
   issuance(request: XpublessV2CommittedIssuanceRequest): Promise<unknown>;
+  issuanceWithoutExclusiveWriter(request: XpublessV2CommittedIssuanceRequest): Promise<unknown>;
 }
 
 declare global {
@@ -154,6 +155,12 @@ const api: P3D3HarnessApi = {
   issuance(request) {
     return browserCommitNextXpublessV2Deposit({
       lockManager: createRealLockManager(),
+      storage: createRealStorage(),
+    }, request);
+  },
+  issuanceWithoutExclusiveWriter(request) {
+    // Test-only capability-negative path: P3D1 must fail closed without a lock manager.
+    return browserCommitNextXpublessV2Deposit({
       storage: createRealStorage(),
     }, request);
   },

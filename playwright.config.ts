@@ -13,7 +13,35 @@ export default defineConfig({
     trace: "off",
     video: "off",
   },
-  projects: [{ name: "chromium" }],
+  projects: [
+    {
+      name: "chromium",
+      testIgnore: [
+        "**/xpubless-v2-browser-matrix.spec.ts",
+        "**/xpubless-v2-quota.spec.ts",
+      ],
+    },
+    {
+      name: "chromium-quota",
+      testMatch: "**/xpubless-v2-quota.spec.ts",
+      use: { browserName: "chromium" },
+    },
+    {
+      name: "matrix-chromium",
+      testMatch: "**/xpubless-v2-browser-matrix.spec.ts",
+      use: { browserName: "chromium" },
+    },
+    {
+      name: "matrix-firefox",
+      testMatch: "**/xpubless-v2-browser-matrix.spec.ts",
+      use: { browserName: "firefox" },
+    },
+    {
+      name: "matrix-webkit",
+      testMatch: "**/xpubless-v2-browser-matrix.spec.ts",
+      use: { browserName: "webkit" },
+    },
+  ],
   webServer: {
     command: "npx next dev tests/browser/harness --hostname 127.0.0.1 --port 4179",
     url: "http://127.0.0.1:4179",
