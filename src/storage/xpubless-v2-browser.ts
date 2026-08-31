@@ -8,6 +8,22 @@ import {
   type XpublessV2LegacyMigrationResult,
   type XpublessV2MigrationUuidSource,
 } from "./xpubless-v2-migration";
+import {
+  commitArchiveXpublessV2Plan,
+  commitCreateXpublessV2Plan,
+  commitHideXpublessV2Deposit,
+  commitImportXpublessV2Plan,
+  commitRemoveXpublessV2Plan,
+  commitRenameXpublessV2Plan,
+  commitRestoreArchivedXpublessV2Plan,
+  commitRestoreHiddenXpublessV2Deposit,
+  type XpublessV2CommittedMutationResult,
+  type XpublessV2CreatePlanRequest,
+  type XpublessV2HiddenDepositMutationRequest,
+  type XpublessV2ImportPlanRequest,
+  type XpublessV2PlanMutationRequest,
+  type XpublessV2RenamePlanMutationRequest,
+} from "./xpubless-v2-committed-mutations";
 
 /** One exclusive browser coordination domain for every xpubless envelope mutation. */
 export const XPUBLESS_V2_BROWSER_LOCK_NAME = "timesats:xpubless-local-state:v1" as const;
@@ -59,6 +75,10 @@ export type XpublessV2BrowserCommittedIssuanceResult =
   | XpublessV2CommittedIssuanceResult
   | XpublessV2BrowserCoordinationResult;
 
+export type XpublessV2BrowserCommittedMutationResult =
+  | XpublessV2CommittedMutationResult
+  | XpublessV2BrowserCoordinationResult;
+
 type AlreadyHeldWriter = {
   runExclusive<T>(operation: () => T): { acquired: true; value: T };
 };
@@ -77,7 +97,8 @@ function createAlreadyHeldWriter(): AlreadyHeldWriter {
 
 type LockableEngineResult =
   | XpublessV2LegacyMigrationResult
-  | XpublessV2CommittedIssuanceResult;
+  | XpublessV2CommittedIssuanceResult
+  | XpublessV2CommittedMutationResult;
 
 type BrowserLockCallbackResult<T> =
   | { kind: "LOCK_UNAVAILABLE" }
@@ -149,5 +170,61 @@ export async function browserCommitNextXpublessV2Deposit(
       storage: dependencies.storage,
       exclusiveWriter,
     }, request)
+  ));
+}
+
+type BrowserMutationDependencies = XpublessV2BrowserCommittedIssuanceDependencies;
+
+export async function browserCommitCreateXpublessV2Plan(
+  dependencies: BrowserMutationDependencies,
+  request: XpublessV2CreatePlanRequest,
+): Promise<XpublessV2BrowserCommittedMutationResult> {
+  return runInsideBrowserLock(dependencies.lockManager, (exclusiveWriter) => (
+    commitCreateXpublessV2Plan({ storage: dependencies.storage, exclusiveWriter }, request)
+  ));
+}
+
+export async function browserCommitImportXpublessV2Plan(
+  dependencies: BrowserMutationDependencies,
+  request: XpublessV2ImportPlanRequest,
+): Promise<XpublessV2BrowserCommittedMutationResult> {
+  return runInsideBrowserLock(dependencies.lockManager, (exclusiveWriter) => (
+    commitImportXpublessV2Plan({ storage: dependencies.storage, exclusiveWriter }, request)
+  ));
+}
+
+export async function browserCommitArchiveXpublessV2Plan(dependencies: BrowserMutationDependencies, request: XpublessV2PlanMutationRequest): Promise<XpublessV2BrowserCommittedMutationResult> {
+  return runInsideBrowserLock(dependencies.lockManager, (exclusiveWriter) => (
+    commitArchiveXpublessV2Plan({ storage: dependencies.storage, exclusiveWriter }, request)
+  ));
+}
+
+export async function browserCommitRestoreArchivedXpublessV2Plan(dependencies: BrowserMutationDependencies, request: XpublessV2PlanMutationRequest): Promise<XpublessV2BrowserCommittedMutationResult> {
+  return runInsideBrowserLock(dependencies.lockManager, (exclusiveWriter) => (
+    commitRestoreArchivedXpublessV2Plan({ storage: dependencies.storage, exclusiveWriter }, request)
+  ));
+}
+
+export async function browserCommitHideXpublessV2Deposit(dependencies: BrowserMutationDependencies, request: XpublessV2HiddenDepositMutationRequest): Promise<XpublessV2BrowserCommittedMutationResult> {
+  return runInsideBrowserLock(dependencies.lockManager, (exclusiveWriter) => (
+    commitHideXpublessV2Deposit({ storage: dependencies.storage, exclusiveWriter }, request)
+  ));
+}
+
+export async function browserCommitRestoreHiddenXpublessV2Deposit(dependencies: BrowserMutationDependencies, request: XpublessV2HiddenDepositMutationRequest): Promise<XpublessV2BrowserCommittedMutationResult> {
+  return runInsideBrowserLock(dependencies.lockManager, (exclusiveWriter) => (
+    commitRestoreHiddenXpublessV2Deposit({ storage: dependencies.storage, exclusiveWriter }, request)
+  ));
+}
+
+export async function browserCommitRemoveXpublessV2Plan(dependencies: BrowserMutationDependencies, request: XpublessV2PlanMutationRequest): Promise<XpublessV2BrowserCommittedMutationResult> {
+  return runInsideBrowserLock(dependencies.lockManager, (exclusiveWriter) => (
+    commitRemoveXpublessV2Plan({ storage: dependencies.storage, exclusiveWriter }, request)
+  ));
+}
+
+export async function browserCommitRenameXpublessV2Plan(dependencies: BrowserMutationDependencies, request: XpublessV2RenamePlanMutationRequest): Promise<XpublessV2BrowserCommittedMutationResult> {
+  return runInsideBrowserLock(dependencies.lockManager, (exclusiveWriter) => (
+    commitRenameXpublessV2Plan({ storage: dependencies.storage, exclusiveWriter }, request)
   ));
 }

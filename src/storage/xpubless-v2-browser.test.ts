@@ -12,7 +12,15 @@ import {
 } from "./xpubless-v2-local-state";
 import {
   XPUBLESS_V2_BROWSER_LOCK_NAME,
+  browserCommitArchiveXpublessV2Plan,
+  browserCommitCreateXpublessV2Plan,
+  browserCommitHideXpublessV2Deposit,
+  browserCommitImportXpublessV2Plan,
   browserCommitNextXpublessV2Deposit,
+  browserCommitRemoveXpublessV2Plan,
+  browserCommitRenameXpublessV2Plan,
+  browserCommitRestoreArchivedXpublessV2Plan,
+  browserCommitRestoreHiddenXpublessV2Deposit,
   browserRunXpublessV2LegacyMigration,
   type XpublessV2BrowserLockManagerLike,
   type XpublessV2BrowserLockRequestOptions,
@@ -156,6 +164,17 @@ function initialState(): XpublessV2LocalState {
   });
 }
 
+function stateWithPreferences(
+  archivedLocalInstanceIds: string[] = [],
+  hiddenDepositIndexes: Record<string, number[]> = {},
+): XpublessV2LocalState {
+  return XpublessV2LocalStateSchema.parse({
+    ...initialState(),
+    archivedLocalInstanceIds,
+    hiddenDepositIndexes,
+  });
+}
+
 function storeTarget(storage: FakeStorage, state: XpublessV2LocalState): void {
   storage.put(XPUBLESS_V2_LOCAL_STATE_STORAGE_KEY, JSON.stringify(state));
 }
@@ -166,6 +185,10 @@ function persistedTarget(storage: FakeStorage): XpublessV2LocalState {
 
 function issuanceRequest(expectedState: XpublessV2LocalState) {
   return { expectedState, localInstanceId: PLAN_ID, presentedExtendedPublicKey: validTestTpub };
+}
+
+function initialPlanRequest() {
+  return { kind: "INITIAL" as const, stateId: STATE_ID, localInstanceId: PLAN_ID, plan: v2Plan() };
 }
 
 function expectOneFailFastRequest(lockManager: FakeLockManager): void {
@@ -351,6 +374,96 @@ describe("P3D1 browser xpubless orchestration (UNIT/MOCK ONLY)", () => {
     expect(result).toEqual({ status: "FAILED_RECOVERABLE" });
     expectOneFailFastRequest(lockManager);
     expect(persistedTarget(storage)).toEqual(expected);
+  });
+
+  it.each([
+    "create",
+    "import",
+    "archive",
+    "restore archive",
+    "hide",
+    "restore hidden",
+    "remove",
+    "rename",
+  ] as const)("runs P3E2 %s through exactly one shared fail-fast lock", async (operation) => {
+    const lockManager = new FakeLockManager();
+    const storage = new FakeStorage(lockManager);
+    const base = initialState();
+
+    let result: { status: string };
+    switch (operation) {
+      case "create":
+        result = await browserCommitCreateXpublessV2Plan({ lockManager, storage }, initialPlanRequest());
+        break;
+      case "import":
+        result = await browserCommitImportXpublessV2Plan({ lockManager, storage }, initialPlanRequest());
+        break;
+      case "archive":
+        storeTarget(storage, base);
+        result = await browserCommitArchiveXpublessV2Plan({ lockManager, storage }, { expectedState: base, localInstanceId: PLAN_ID });
+        break;
+      case "restore archive": {
+        const archived = stateWithPreferences([PLAN_ID]);
+        storeTarget(storage, archived);
+        result = await browserCommitRestoreArchivedXpublessV2Plan({ lockManager, storage }, { expectedState: archived, localInstanceId: PLAN_ID });
+        break;
+      }
+      case "hide":
+        storeTarget(storage, base);
+        result = await browserCommitHideXpublessV2Deposit({ lockManager, storage }, { expectedState: base, localInstanceId: PLAN_ID, depositIndex: 0 });
+        break;
+      case "restore hidden": {
+        const hidden = stateWithPreferences([], { [PLAN_ID]: [0] });
+        storeTarget(storage, hidden);
+        result = await browserCommitRestoreHiddenXpublessV2Deposit({ lockManager, storage }, { expectedState: hidden, localInstanceId: PLAN_ID, depositIndex: 0 });
+        break;
+      }
+      case "remove":
+        storeTarget(storage, base);
+        result = await browserCommitRemoveXpublessV2Plan({ lockManager, storage }, { expectedState: base, localInstanceId: PLAN_ID });
+        break;
+      case "rename":
+        storeTarget(storage, base);
+        result = await browserCommitRenameXpublessV2Plan({ lockManager, storage }, { expectedState: base, localInstanceId: PLAN_ID, label: "Renamed" });
+        break;
+    }
+
+    expect(result).toMatchObject({ status: "COMMITTED" });
+    expectOneFailFastRequest(lockManager);
+    expect(lockManager.callbackCalls).toBe(1);
+    expect(lockManager.active).toBe(false);
+    expect(storage.operations.length).toBeGreaterThan(0);
+  });
+
+  it("keeps P3E2 busy, unsupported, coordination, and engine failures distinct", async () => {
+    const request = initialPlanRequest();
+
+    const unavailableLock = new FakeLockManager("unavailable");
+    const unavailableStorage = new FakeStorage(unavailableLock);
+    expect(await browserCommitCreateXpublessV2Plan({ lockManager: unavailableLock, storage: unavailableStorage }, request)).toEqual({ status: "BLOCKED_CONCURRENT_WRITER" });
+    expectOneFailFastRequest(unavailableLock);
+    expect(unavailableStorage.operations).toEqual([]);
+
+    const unsupportedLock = new FakeLockManager();
+    const unsupportedStorage = new FakeStorage(unsupportedLock);
+    expect(await browserCommitCreateXpublessV2Plan({ storage: unsupportedStorage }, request)).toEqual({ status: "UNSUPPORTED_EXCLUSIVE_WRITER" });
+    expect(unsupportedLock.requests).toEqual([]);
+    expect(unsupportedStorage.operations).toEqual([]);
+
+    const rejectedLock = new FakeLockManager("reject");
+    const rejectedStorage = new FakeStorage(rejectedLock);
+    expect(await browserCommitCreateXpublessV2Plan({ lockManager: rejectedLock, storage: rejectedStorage }, request)).toEqual({ status: "FAILED_BROWSER_COORDINATION" });
+    expectOneFailFastRequest(rejectedLock);
+    expect(rejectedStorage.operations).toEqual([]);
+
+    const engineLock = new FakeLockManager();
+    const engineStorage = new FakeStorage(engineLock);
+    const expected = initialState();
+    storeTarget(engineStorage, expected);
+    engineStorage.failNextTargetWrite();
+    expect(await browserCommitArchiveXpublessV2Plan({ lockManager: engineLock, storage: engineStorage }, { expectedState: expected, localInstanceId: PLAN_ID })).toEqual({ status: "FAILED_RECOVERABLE" });
+    expectOneFailFastRequest(engineLock);
+    expect(engineLock.callbackCalls).toBe(1);
   });
 
   it("does not mutate the issuance request and exports no lock capability", async () => {
