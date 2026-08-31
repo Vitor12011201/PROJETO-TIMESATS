@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import Image from "next/image";
+import Link from "next/link";
 import {
   ArrowRight,
   Archive,
@@ -12,7 +14,6 @@ import {
   EyeOff,
   FileKey,
   FileUp,
-  Hourglass,
   House,
   KeyRound,
   Landmark,
@@ -58,10 +59,9 @@ export function Header({ onCreate }: { onCreate: () => void }) {
   return (
     <header className={styles.header}>
       <div className={styles.navInner}>
-        <a className={styles.brand} href="#produto" aria-label="TimeSats, início">
-          <span className={styles.brandMark}><Hourglass aria-hidden="true" size={22} strokeWidth={1.8} /></span>
-          <span>TimeSats</span>
-        </a>
+        <Link className={styles.brand} href="/" aria-label="TimeSats, página inicial">
+          <Image className={styles.brandLogo} src="/brand/timesats-logo.png" alt="TimeSats" width={60} height={60} priority unoptimized sizes="(max-width: 620px) 52px, 60px" />
+        </Link>
         <nav className={styles.navigation} aria-label="Navegação principal">
           <a href="#produto">Produto</a><a href="#como-funciona">Como funciona</a><a href="#seguranca">Segurança</a><a href="#documentacao">Documentação</a><a href={githubUrl} target="_blank" rel="noreferrer">GitHub</a>
         </nav>
