@@ -9,6 +9,11 @@ import {
   type XpublessV2MigrationUuidSource,
 } from "./xpubless-v2-migration";
 import {
+  classifyXpublessV2Authority,
+  readXpublessV2AuthorityRawSnapshot,
+  type XpublessV2AuthorityClassification,
+} from "./xpubless-v2-authority";
+import {
   commitArchiveXpublessV2Plan,
   commitCreateXpublessV2Plan,
   commitHideXpublessV2Deposit,
@@ -79,6 +84,11 @@ export type XpublessV2BrowserCommittedMutationResult =
   | XpublessV2CommittedMutationResult
   | XpublessV2BrowserCoordinationResult;
 
+export type XpublessV2BrowserAuthorityInspectionResult =
+  | XpublessV2AuthorityClassification
+  | { status: "FAILED_RECOVERABLE" }
+  | XpublessV2BrowserCoordinationResult;
+
 type AlreadyHeldWriter = {
   runExclusive<T>(operation: () => T): { acquired: true; value: T };
 };
@@ -98,7 +108,12 @@ function createAlreadyHeldWriter(): AlreadyHeldWriter {
 type LockableEngineResult =
   | XpublessV2LegacyMigrationResult
   | XpublessV2CommittedIssuanceResult
-  | XpublessV2CommittedMutationResult;
+  | XpublessV2CommittedMutationResult
+  | XpublessV2AuthorityInspectionEngineResult;
+
+type XpublessV2AuthorityInspectionEngineResult =
+  | XpublessV2AuthorityClassification
+  | { status: "FAILED_RECOVERABLE" };
 
 type BrowserLockCallbackResult<T> =
   | { kind: "LOCK_UNAVAILABLE" }
@@ -174,6 +189,32 @@ export async function browserCommitNextXpublessV2Deposit(
 }
 
 type BrowserMutationDependencies = XpublessV2BrowserCommittedIssuanceDependencies;
+
+/**
+ * Reads and classifies canonical authority surfaces under the same exclusive
+ * domain as every xpubless mutation. It observes only; it never writes or
+ * runs migration, and callers do not receive raw legacy values. Its result is
+ * not a write capability: every later mutation must acquire and reread again.
+ */
+export async function browserInspectXpublessV2Authority(
+  dependencies: BrowserMutationDependencies,
+): Promise<XpublessV2BrowserAuthorityInspectionResult> {
+  return runInsideBrowserLock(dependencies.lockManager, () => (
+    inspectAuthorityInsideLock(dependencies.storage)
+  ));
+}
+
+function inspectAuthorityInsideLock(
+  storage: XpublessV2BrowserStorageLike,
+): XpublessV2AuthorityInspectionEngineResult {
+  try {
+    return classifyXpublessV2Authority(readXpublessV2AuthorityRawSnapshot(storage));
+  } catch {
+    // A ready environment can still reject a later storage read. This is not
+    // a Web Locks coordination failure and cannot authorize a write path.
+    return { status: "FAILED_RECOVERABLE" };
+  }
+}
 
 export async function browserCommitCreateXpublessV2Plan(
   dependencies: BrowserMutationDependencies,

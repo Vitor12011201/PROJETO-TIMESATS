@@ -21,6 +21,7 @@ import {
   browserCommitRenameXpublessV2Plan,
   browserCommitRestoreArchivedXpublessV2Plan,
   browserCommitRestoreHiddenXpublessV2Deposit,
+  browserInspectXpublessV2Authority,
   browserRunXpublessV2LegacyMigration,
   type XpublessV2BrowserLockManagerLike,
   type XpublessV2BrowserLockRequestOptions,
@@ -374,6 +375,55 @@ describe("P3D1 browser xpubless orchestration (UNIT/MOCK ONLY)", () => {
     expect(result).toEqual({ status: "FAILED_RECOVERABLE" });
     expectOneFailFastRequest(lockManager);
     expect(persistedTarget(storage)).toEqual(expected);
+  });
+
+  it("inspects authority only inside one shared fail-fast lock without writes", async () => {
+    const lockManager = new FakeLockManager();
+    const storage = new FakeStorage(lockManager);
+    const expected = initialState();
+    storeTarget(storage, expected);
+
+    const result = await browserInspectXpublessV2Authority({ lockManager, storage });
+
+    expect(result).toEqual({ status: "XPUBLESS_AUTHORITY", state: expected });
+    expectOneFailFastRequest(lockManager);
+    expect(lockManager.callbackCalls).toBe(1);
+    expect(storage.operations).toEqual([
+      ...XPUBLESS_V2_LEGACY_STORAGE_KEYS.map((key) => ({ operation: "get", key })),
+      { operation: "get", key: XPUBLESS_V2_LOCAL_STATE_STORAGE_KEY },
+      { operation: "get", key: XPUBLESS_V2_MIGRATION_JOURNAL_STORAGE_KEY },
+    ]);
+  });
+
+  it("fails closed for busy, unsupported, or rejected authority inspection without storage I/O", async () => {
+    const busyLock = new FakeLockManager("unavailable");
+    const busyStorage = new FakeStorage(busyLock);
+    expect(await browserInspectXpublessV2Authority({ lockManager: busyLock, storage: busyStorage })).toEqual({ status: "BLOCKED_CONCURRENT_WRITER" });
+    expectOneFailFastRequest(busyLock);
+    expect(busyStorage.operations).toEqual([]);
+
+    const unsupportedLock = new FakeLockManager();
+    const unsupportedStorage = new FakeStorage(unsupportedLock);
+    expect(await browserInspectXpublessV2Authority({ storage: unsupportedStorage })).toEqual({ status: "UNSUPPORTED_EXCLUSIVE_WRITER" });
+    expect(unsupportedLock.requests).toEqual([]);
+    expect(unsupportedStorage.operations).toEqual([]);
+
+    const rejectedLock = new FakeLockManager("reject");
+    const rejectedStorage = new FakeStorage(rejectedLock);
+    expect(await browserInspectXpublessV2Authority({ lockManager: rejectedLock, storage: rejectedStorage })).toEqual({ status: "FAILED_BROWSER_COORDINATION" });
+    expectOneFailFastRequest(rejectedLock);
+    expect(rejectedStorage.operations).toEqual([]);
+  });
+
+  it("returns recoverable inspection failure when a storage read throws after lock acquisition", async () => {
+    const lockManager = new FakeLockManager();
+    const storage = new FakeStorage(lockManager);
+    storage.failNextReadInsideLock();
+
+    expect(await browserInspectXpublessV2Authority({ lockManager, storage })).toEqual({ status: "FAILED_RECOVERABLE" });
+    expectOneFailFastRequest(lockManager);
+    expect(lockManager.callbackCalls).toBe(1);
+    expect(storage.operations).toEqual([{ operation: "get", key: XPUBLESS_V2_LEGACY_STORAGE_KEYS[0] }]);
   });
 
   it.each([
