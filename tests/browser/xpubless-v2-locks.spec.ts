@@ -148,10 +148,14 @@ test.describe("P3D2 Chromium Web Locks coordination", () => {
     try {
       const { pageA, pageB } = await openSameOriginTabs(context);
       await pageA.evaluate(([key, value]) => localStorage.setItem(key, value), [TEST_STORAGE_KEY, "value-a"]);
-      expect(await pageB.evaluate((key) => localStorage.getItem(key), TEST_STORAGE_KEY)).toBe("value-a");
+      await expect.poll(
+        async () => pageB.evaluate((key) => localStorage.getItem(key), TEST_STORAGE_KEY),
+      ).toBe("value-a");
 
       await pageB.evaluate(([key, value]) => localStorage.setItem(key, value), [TEST_STORAGE_KEY, "value-b"]);
-      expect(await pageA.evaluate((key) => localStorage.getItem(key), TEST_STORAGE_KEY)).toBe("value-b");
+      await expect.poll(
+        async () => pageA.evaluate((key) => localStorage.getItem(key), TEST_STORAGE_KEY),
+      ).toBe("value-b");
     } finally {
       await context.close();
     }
